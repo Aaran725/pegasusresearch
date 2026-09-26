@@ -49,6 +49,62 @@ export const CURATED_STARTUPS = {
       { name: 'Google DeepMind', valuation: 'N/A (Alphabet)', revenue: 'Undisclosed', evRev: 'N/A', growth: '+95%', up: true, tier: 'Incumbent', tone: 'slate', differentiator: 'Owns TPU compute stack; Gemini bundled across Workspace/Android' },
       { name: 'Mistral AI', valuation: '$14B', revenue: '$150M ARR', evRev: '93.3x', growth: '+310%', up: true, tier: 'Fast Follower', tone: 'amber', differentiator: 'Open-weight models; strong EU sovereign-cloud positioning' },
     ],
+    pegasusFit: {
+      team: { score: 88, note: 'Founding team spun out of OpenAI\'s safety org specifically to pursue a safety-first thesis — a clear, differentiated market vision, not a me-too founding story.' },
+      techInnovation: { score: 90, note: 'Constitutional AI / RLHF-alternative alignment research is genuine proprietary IP, not just scale — a real technical moat distinct from raw compute spend.' },
+      financials: { score: 65, note: '>3x YoY revenue run-rate growth is strong, but inference costs scaling alongside revenue means margin trajectory is the open question, not top-line.' },
+      vcaasFit: { score: 20, note: 'Already backed by Amazon and Google directly at hyperscaler capital levels — a network of mid-market corporate partners adds little this company doesn\'t already have.' },
+    },
+  },
+
+  openai: {
+    name: 'OpenAI',
+    ticker: 'OPENAI',
+    sector: 'Frontier AI / Foundation Models',
+    stage: 'Late Stage',
+    pitch:
+      'Builds ChatGPT and the GPT model family, the consumer and enterprise category leader in frontier AI by user base and revenue.',
+    logoInitial: 'O',
+    valuation: '$500B',
+    valuationTrend: '+65%',
+    totalRaised: '$61.9B',
+    raisedTrend: '+31%',
+    leadInvestors: 'Microsoft, Thrive Capital, SoftBank',
+    leadInvestorNote: 'Tender offer · Oct 2025',
+    tam: '$1.3T',
+    tamTrend: '+34%',
+    aiVerdict:
+      "OpenAI is the clearest consumer-scale distribution moat in frontier AI — ChatGPT's user base and Microsoft's Azure/Copilot integration give it demand-side advantages a smaller lab can't replicate. Revenue run-rate ($13B+) is the largest in the sector, but the company's nonprofit-to-PBC restructuring and the scale of its compute commitments (Microsoft, Oracle, Nvidia) mean the capital intensity here is structurally different from anything Pegasus typically underwrites at seed/Series A. Treat this as a market-awareness/comps reference, not a check-writing candidate at current stage and size.",
+    fundingHistory: [
+      { round: 'Seed/Early', year: '2019', valuation: 1, raised: 1 },
+      { round: 'Series (MSFT)', year: '2023', valuation: 29, raised: 10 },
+      { round: 'Series', year: '2024', valuation: 157, raised: 6.6 },
+      { round: 'Series', year: '2025', valuation: 300, raised: 40 },
+      { round: 'Tender/Secondary', year: '2025', valuation: 500, raised: 6.6 },
+    ],
+    marketSizing: [
+      { name: 'TAM', label: 'Total Addressable Market', value: 1300000, color: '#3B82F6' },
+      { name: 'SAM', label: 'Serviceable Addressable Market', value: 450000, color: '#60A5FA' },
+      { name: 'SOM', label: 'Serviceable Obtainable Market', value: 60000, color: '#93C5FD' },
+    ],
+    competitors: [
+      { name: 'OpenAI', innovation: 88, traction: 96, raised: 61900, subject: true },
+      { name: 'Anthropic', innovation: 92, traction: 78, raised: 27100, subject: false },
+      { name: 'Google DeepMind', innovation: 85, traction: 90, raised: 0, subject: false },
+      { name: 'xAI', innovation: 76, traction: 65, raised: 12000, subject: false },
+    ],
+    comps: [
+      { name: 'OpenAI', valuation: '$500B', revenue: '$13B ARR', evRev: '38.5x', growth: '+180%', up: true, tier: 'Tier 1 Lead', tone: 'blue', differentiator: 'Consumer scale via ChatGPT; Microsoft distribution + Azure compute' },
+      { name: 'Anthropic', valuation: '$183B', revenue: '$4.5B ARR', evRev: '40.7x', growth: '+220%', up: true, tier: 'Fast Follower', tone: 'amber', differentiator: 'Constitutional AI safety layer; deep enterprise + AWS/GCP distribution' },
+      { name: 'Google DeepMind', valuation: 'N/A (Alphabet)', revenue: 'Undisclosed', evRev: 'N/A', growth: '+95%', up: true, tier: 'Incumbent', tone: 'slate', differentiator: 'Owns TPU compute stack; Gemini bundled across Workspace/Android' },
+      { name: 'xAI', valuation: '$50B', revenue: 'Undisclosed', evRev: 'N/A', growth: 'N/A', up: true, tier: 'Niche Player', tone: 'slate', differentiator: 'Grok tied to X/Tesla distribution; heavy compute buildout via Colossus cluster' },
+    ],
+    pegasusFit: {
+      team: { score: 75, note: 'Deep bench of research leadership, though the 2023-24 governance/board turmoil is a real market-vision-stability flag worth underwriting explicitly.' },
+      techInnovation: { score: 85, note: 'GPT model family + first-mover consumer product (ChatGPT) is genuine, proven technical and product execution, not just scale.' },
+      financials: { score: 55, note: 'Largest revenue run-rate in the sector ($13B+ ARR), but compute-commitment obligations (Microsoft/Oracle/Nvidia deals reported in the tens of billions) create financial structure complexity uncommon at Pegasus\'s typical check stage.' },
+      vcaasFit: { score: 15, note: 'Already at hyperscaler-backed, late-stage secondary-market pricing — outside the profile VCaaS corporate-partner distribution is built to help with.' },
+    },
   },
 
   'figure ai': {
@@ -245,4 +301,4 @@ export function getStartupData(query) {
   return generateMockStartup(query);
 }
 
-export const SUGGESTED_SEARCHES = ['Anthropic', 'Figure AI'];
+export const SUGGESTED_SEARCHES = ['Anthropic', 'OpenAI', 'Figure AI'];

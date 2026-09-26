@@ -45,7 +45,11 @@ export default function Dashboard({ data, source, onRefresh, onSaveField, inPort
         </div>
       </div>
 
-      {isLive && <PegasusFitCard fit={data.pegasusFit} />}
+      {/* Curated mock (isGenerated: false) is hand-verified demo data, distinct
+          from the fully-synthetic deterministic generator (isGenerated: true) —
+          shown here too so a live-search failure that falls back to curated
+          mock doesn't silently drop the scorecard. */}
+      {!data.isGenerated && data.pegasusFit && <PegasusFitCard fit={data.pegasusFit} />}
 
       <MetricsBar data={data} editable={isLive} onSaveField={onSaveField} />
       <AIVerdict data={data} source={source} onSaveField={isLive ? onSaveField : null} />
