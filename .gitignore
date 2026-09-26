@@ -17,6 +17,10 @@ dist-ssr
 .env.local
 .env.*.local
 
+# File-based research cache + quota counter (server/services/researchCache.js,
+# quotaTracker.js) — local runtime state, not source.
+server/data-cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

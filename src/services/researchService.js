@@ -6,23 +6,26 @@
 
 /**
  * Fetches a live, web-grounded investment memo for a company name.
+ * Pass { forceRefresh: true } to bypass the server's 24h cache and re-run
+ * the full search + synthesis pipeline (spends Tavily quota).
  *
  * Throws an Error with `.code` set to one of:
  *   'no_evidence'      — search ran fine, but found nothing on the open web
  *                         for this name (likely not a real/findable company)
  *   'search_failed'    — Tavily error, or not configured on the server
  *   'synthesis_failed' — Groq error after evidence was found
+ *   'quota_exhausted'  — monthly Tavily search-credit budget is used up
  *   'network_error'    — couldn't reach our own backend at all
  *
  * Callers should catch and fall back to the mock data generator.
  */
-export async function fetchStartupMemo(companyName) {
+export async function fetchStartupMemo(companyName, { forceRefresh = false } = {}) {
   let res;
   try {
     res = await fetch('/api/research', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company: companyName }),
+      body: JSON.stringify({ company: companyName, forceRefresh }),
     });
   } catch (cause) {
     const err = new Error(`Could not reach the research backend: ${cause.message}`);
@@ -39,5 +42,18 @@ export async function fetchStartupMemo(companyName) {
     throw err;
   }
 
-  return { ...body.memo, researchTrace: body.researchTrace ?? [] };
+  return {
+    ...body.memo,
+    researchTrace: body.researchTrace ?? [],
+    cached: Boolean(body.cached),
+    fetchedAt: body.fetchedAt ?? null,
+    stale: Boolean(body.stale),
+  };
+}
+
+/** Fetches current Tavily search-credit usage for the calendar month. */
+export async function fetchQuotaUsage() {
+  const res = await fetch('/api/quota');
+  if (!res.ok) throw new Error(`Quota request failed (${res.status})`);
+  return res.json();
 }

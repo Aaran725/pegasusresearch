@@ -40,47 +40,72 @@ frontend and the API from one process).
 - **Groq** (https://console.groq.com/keys) — free tier. Up to 3 keys can be
   set (`GROQ_API_KEY`, `_2`, `_3`) and are rotated on failure/rate-limit.
 - **Tavily** (https://tavily.com) — free tier, 1,000 search credits/month.
-  Each research run costs 5 credits (one per query in the search plan), so
-  the free tier covers roughly 200 company searches/month.
+  A full research run costs up to 9 credits (5 base queries + up to 4
+  follow-ups — see below), so the free tier covers roughly 100+ company
+  searches/month depending on how many competitors get deep-dived. Usage
+  is tracked server-side and shown live in the sidebar; the app refuses to
+  start a run it can't afford rather than partially burning quota.
 
 ## How research works
 
-`server/services/researchOrchestrator.js` runs the pipeline per search:
+`server/services/researchOrchestrator.js` runs a two-pass pipeline per search:
 
-1. **Multi-query live search** (Tavily) — funding/valuation, competitors,
+1. **Base search** (Tavily, 5 queries) — funding/valuation, competitors,
    revenue/TAM, recent news, and a Crunchbase/PitchBook-targeted query.
-2. **Evidence-grounded synthesis** (Groq) — the model is instructed to cite
-   every numeric claim to a specific source snippet, or return `null`/omit
-   the entry rather than guess. It also rates its own confidence per field
-   (`verified` / `inferred` / `unavailable`).
-3. The frontend renders the result with inline source links, confidence
-   badges, and an expandable "Research trace" panel showing every query run
-   — so a human can audit the work instead of taking it on faith.
+2. **Follow-up depth pass** (budget-permitting):
+   - A cheap Groq call reads the base evidence and names up to 3 *real*
+     competitors actually mentioned in it (never invented) — a dedicated
+     Tavily query then researches each one individually, so the comps
+     table is sourced from evidence about that specific competitor, not
+     stray mentions in the subject company's own search results.
+   - A dedicated founder/CEO background query.
+   - A dedicated risk query (`lawsuit OR layoffs OR controversy OR
+     investigation OR regulatory`) — deliberately hunting for negative
+     signals, since a naive pipeline only ever surfaces positives.
+3. **Evidence-grounded synthesis** (Groq, one final call over everything
+   gathered) — cites every numeric claim to a specific source snippet, or
+   returns `null`/omits the entry rather than guessing, and self-rates
+   confidence per field (`verified` / `inferred` / `unavailable`).
+4. The frontend renders sources, confidence badges, an expandable research
+   trace, a risk-signals panel (including an explicit "searched and found
+   nothing" state — that's a real, meaningful result, not an omission),
+   a founding-team panel, and a recent-news timeline.
 
-If Tavily/Groq are unreachable, misconfigured, or find nothing for a given
-name, the app falls back to `src/data/mockStartups.js` — curated data for a
-couple of well-known companies, or a deterministic generator for anything
-else — clearly labeled as demo/directional data, never presented as real
-research. The UI distinguishes exactly why it fell back (search
-unreachable vs. no evidence found vs. synthesis failed) rather than showing
-one generic error.
+**Caching:** results are cached per company (`server/data-cache/`, file-based)
+for 24h. A second search of the same company is instant and spends no
+quota; the UI shows "Researched X ago" with a manual Refresh that bypasses
+the cache. Past 24h, cached data still loads (flagged `stale`) rather than
+silently forcing a re-run.
+
+If Tavily/Groq are unreachable, misconfigured, quota-exhausted, or find
+nothing for a given name, the app falls back to `src/data/mockStartups.js`
+— curated data for a couple of well-known companies, or a deterministic
+generator for anything else — clearly labeled as demo/directional data,
+never presented as real research. The UI distinguishes exactly why it fell
+back (search unreachable vs. no evidence found vs. quota exhausted vs.
+synthesis failed) rather than showing one generic error.
 
 **Honest limitation:** this gets you a cited first-pass draft from the
 *public* web. It does not replace data-room access, reference calls, or
-paid terminals (PitchBook/Crunchbase Pro) — nothing free-tier can.
+paid terminals (PitchBook/Crunchbase Pro) — nothing free-tier can. Market
+sizing (TAM/SAM/SOM) in particular is almost always `inferred`, not
+`verified` — real market-sizing breakdowns are rarely published anywhere
+a free search API can find them.
 
 ## Project layout
 
 ```
 server/
-  index.js                    Express entry point (dev: API only; prod: API + static frontend)
-  routes/research.js          POST /api/research
-  services/tavilyClient.js    Live web search
-  services/groqClient.js      Evidence-grounded LLM synthesis
-  services/researchOrchestrator.js   Wires the two together, error classification
+  index.js                          Express entry point (dev: API only; prod: API + static frontend)
+  routes/research.js                POST /api/research, GET /api/quota
+  services/tavilyClient.js          Live web search + quota recording
+  services/groqClient.js            Evidence-grounded LLM synthesis + competitor-naming call
+  services/researchOrchestrator.js  Wires search -> follow-ups -> synthesis, error classification
+  services/researchCache.js         24h file-based cache per company
+  services/quotaTracker.js          Monthly Tavily credit usage, persisted to disk
 
 src/
-  components/    UI building blocks (charts, tables, sidebar, header)
+  components/    UI building blocks (charts, tables, sidebar, header, risk/team/news panels)
   data/          Mock/generated fallback startup data
   services/researchService.js   Client -> our own backend (never calls Groq/Tavily directly)
 ```

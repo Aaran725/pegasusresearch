@@ -7,7 +7,44 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ active, onNavigate }) {
+function QuotaMeter({ quota }) {
+  if (!quota) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2.5">
+        <Zap size={13} className="text-accent-soft shrink-0" />
+        <span className="text-[11px] text-text-muted leading-snug">
+          Pegasus Tech Ventures thesis engine active
+        </span>
+      </div>
+    );
+  }
+
+  const pct = quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
+  const low = quota.remaining < 15;
+
+  return (
+    <div
+      className={`flex flex-col gap-1.5 rounded-lg border px-3 py-2.5 ${
+        low ? 'border-warning/25 bg-warning/5' : 'border-accent/20 bg-accent/5'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <Zap size={13} className={`shrink-0 ${low ? 'text-warning' : 'text-accent-soft'}`} />
+        <span className="text-[11px] text-text-muted leading-snug">
+          {quota.used}/{quota.limit} live searches this month
+        </span>
+      </div>
+      <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+        <div
+          className={`h-full rounded-full ${low ? 'bg-warning' : 'bg-accent'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function Sidebar({ active, onNavigate, quota }) {
   return (
     <aside className="hidden md:flex w-[220px] shrink-0 flex-col border-r border-border bg-panel">
       <div className="flex items-center gap-2.5 px-5 py-5 border-b border-border">
@@ -45,12 +82,7 @@ export default function Sidebar({ active, onNavigate }) {
       </nav>
 
       <div className="px-4 py-4 border-t border-border">
-        <div className="flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2.5">
-          <Zap size={13} className="text-accent-soft shrink-0" />
-          <span className="text-[11px] text-text-muted leading-snug">
-            Pegasus Tech Ventures thesis engine active
-          </span>
-        </div>
+        <QuotaMeter quota={quota} />
       </div>
     </aside>
   );

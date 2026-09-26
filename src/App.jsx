@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Briefcase, TrendingUp, Settings, AlertTriangle, Loader2 } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import SearchHeader from './components/SearchHeader';
@@ -6,13 +6,14 @@ import Dashboard from './components/Dashboard';
 import EmptyState from './components/EmptyState';
 import PlaceholderView from './components/PlaceholderView';
 import { getStartupData } from './data/mockStartups';
-import { fetchStartupMemo } from './services/researchService';
+import { fetchStartupMemo, fetchQuotaUsage } from './services/researchService';
 
 const NOTICE_BY_CODE = {
   no_evidence:
     'No public web results found for this name — it may not exist, or may not have any online footprint. Showing a directional estimate instead.',
   search_failed: 'Live web search is unavailable right now — showing demo data instead.',
   synthesis_failed: 'Found web evidence, but memo synthesis failed — showing demo data instead.',
+  quota_exhausted: 'Monthly live-search quota is used up — showing demo data instead.',
   network_error: 'Could not reach the research backend — showing demo data instead.',
 };
 
@@ -23,39 +24,57 @@ export default function App() {
   const [source, setSource] = useState('mock');
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [quota, setQuota] = useState(null);
 
-  const runSearch = useCallback(async (name) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-
-    setLoading(true);
-    setNotice(null);
-
-    try {
-      const memo = await fetchStartupMemo(trimmed);
-      setData(memo);
-      setSource('groq+tavily');
-      setLoading(false);
-      return;
-    } catch (err) {
-      setNotice(NOTICE_BY_CODE[err.code] ?? NOTICE_BY_CODE.network_error);
-    }
-
-    // Fallback: curated or deterministically generated mock data, so the
-    // dashboard never breaks even without a working search/model pipeline.
-    setData(getStartupData(trimmed));
-    setSource('mock');
-    setLoading(false);
+  const refreshQuota = useCallback(() => {
+    fetchQuotaUsage().then(setQuota).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshQuota();
+  }, [refreshQuota]);
+
+  const runSearch = useCallback(
+    async (name, { forceRefresh = false } = {}) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+
+      setLoading(true);
+      setNotice(null);
+
+      try {
+        const memo = await fetchStartupMemo(trimmed, { forceRefresh });
+        setData(memo);
+        setSource('groq+tavily');
+        setLoading(false);
+        refreshQuota();
+        return;
+      } catch (err) {
+        setNotice(NOTICE_BY_CODE[err.code] ?? NOTICE_BY_CODE.network_error);
+      }
+
+      // Fallback: curated or deterministically generated mock data, so the
+      // dashboard never breaks even without a working search/model pipeline.
+      setData(getStartupData(trimmed));
+      setSource('mock');
+      setLoading(false);
+      refreshQuota();
+    },
+    [refreshQuota]
+  );
 
   const handlePick = (name) => {
     setQuery(name);
     runSearch(name);
   };
 
+  const handleRefresh = () => {
+    if (query) runSearch(query, { forceRefresh: true });
+  };
+
   return (
     <div className="min-h-screen flex bg-bg text-text">
-      <Sidebar active={activeNav} onNavigate={setActiveNav} />
+      <Sidebar active={activeNav} onNavigate={setActiveNav} quota={quota} />
 
       <main className="flex-1 min-w-0 px-4 sm:px-6 py-5">
         <div className="max-w-[1360px] mx-auto flex flex-col gap-4 min-h-[calc(100vh-40px)]">
@@ -95,7 +114,9 @@ export default function App() {
                 </div>
               )}
 
-              {!loading && data && <Dashboard data={data} source={source} />}
+              {!loading && data && (
+                <Dashboard data={data} source={source} onRefresh={handleRefresh} />
+              )}
               {!loading && !data && <EmptyState onPick={handlePick} />}
             </>
           )}

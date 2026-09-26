@@ -4,6 +4,8 @@
 // "basic" depth costs 1 credit per call, so we keep depth basic and rely
 // on well-targeted queries instead of "advanced" depth to conserve quota.
 
+import { recordUsage } from './quotaTracker.js';
+
 const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 
 function getApiKey() {
@@ -12,9 +14,12 @@ function getApiKey() {
 
 /**
  * Runs one Tavily search query.
- * Returns { query, answer, results: [{ title, url, content, score }] }.
+ * Returns { query, label, answer, results: [{ title, url, content, score }] }.
+ * `label` is an optional evidence-group tag (e.g. "competitor:OpenAI") that
+ * passes through untouched, purely so the orchestrator/prompt can attribute
+ * evidence to the right section without re-deriving it from the query text.
  */
-export async function tavilySearch(query, { maxResults = 5 } = {}) {
+export async function tavilySearch(query, { maxResults = 5, label } = {}) {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error('TAVILY_API_KEY is not configured on the server');
@@ -39,9 +44,12 @@ export async function tavilySearch(query, { maxResults = 5 } = {}) {
     throw err;
   }
 
+  recordUsage(1); // "basic" depth = 1 credit, charged on any successful call
+
   const data = await res.json();
   return {
     query,
+    label,
     answer: data.answer ?? null,
     results: (data.results ?? []).map((r) => ({
       title: r.title,
@@ -53,19 +61,25 @@ export async function tavilySearch(query, { maxResults = 5 } = {}) {
 }
 
 /**
- * Runs several Tavily queries in parallel. Individual query failures are
- * swallowed (logged) rather than aborting the whole research run — partial
- * evidence is still useful, and one bad query shouldn't kill the request.
+ * Runs several Tavily queries in parallel. Each entry in `queries` can be a
+ * plain string or { query, label, maxResults } to override per-query.
+ * Individual query failures are swallowed (logged) rather than aborting the
+ * whole research run — partial evidence is still useful.
  */
 export async function tavilySearchMany(queries, opts) {
-  const settled = await Promise.allSettled(queries.map((q) => tavilySearch(q, opts)));
+  const normalized = queries.map((q) => (typeof q === 'string' ? { query: q } : q));
+  const settled = await Promise.allSettled(
+    normalized.map((q) => tavilySearch(q.query, { maxResults: q.maxResults ?? opts?.maxResults, label: q.label }))
+  );
   return settled.map((result, i) => {
     if (result.status === 'fulfilled') return result.value;
-    console.error(`Tavily query failed: "${queries[i]}"`, result.reason?.message);
-    return { query: queries[i], answer: null, results: [], error: true };
+    console.error(`Tavily query failed: "${normalized[i].query}"`, result.reason?.message);
+    return { query: normalized[i].query, label: normalized[i].label, answer: null, results: [], error: true };
   });
 }
 
 export function hasTavilyKeyConfigured() {
   return Boolean(getApiKey());
 }
+
+export { getUsage as getTavilyUsage } from './quotaTracker.js';
