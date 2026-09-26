@@ -8,12 +8,15 @@
 //                    competitor + founder + risk searches), citing or
 //                    abstaining on every claim.
 //
-// Model selection is auto-discovered rather than hardcoded: Groq
-// deprecates/renames models fairly often (this broke once already —
-// llama-3.3-70b-versatile stopped existing), so hardcoding one just means
-// this breaks again later. Set GROQ_MODEL to pin a specific model; leave
-// it unset to auto-pick a reasonable chat model from Groq's live list,
-// with automatic re-resolution if the picked model ever 404s.
+// Model selection is a ranked FALLBACK CHAIN, not one hardcoded/auto-picked
+// model — two real production failures already showed why a single choice
+// isn't safe: (1) a hardcoded model can just stop existing (Groq deprecates
+// models fairly often), and (2) different models have wildly different
+// per-account rate limits on Groq's free tier, so even a live, valid model
+// can be too rate-limited to serve a given request. Rather than guess one
+// "best" model, we rank Groq's live model list by preference and walk down
+// it on any 404 (model gone) or 429 (rate-limited/too-large-for-this-tier),
+// remembering whichever one last actually worked.
 
 const GROQ_CHAT_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODELS_ENDPOINT = 'https://api.groq.com/openai/v1/models';
@@ -23,8 +26,8 @@ const GROQ_MODELS_ENDPOINT = 'https://api.groq.com/openai/v1/models';
 const NON_CHAT_PATTERNS = [/whisper/i, /guard/i, /tts/i, /moderation/i, /prompt-guard/i];
 
 // When multiple chat models are available, prefer larger/well-known
-// instruct models in roughly this order; falls back to "whatever's first"
-// if none of these match.
+// instruct models in roughly this order; anything not matching any pattern
+// is still included, just ranked after these.
 const PREFERRED_PATTERNS = [
   /versatile/i,
   /maverick/i,
@@ -39,7 +42,8 @@ const PREFERRED_PATTERNS = [
   /llama-3\.[13]/i,
 ];
 
-let cachedModel = null;
+let cachedRanked = null; // full ranked candidate list for this process
+let workingIndex = 0; // index into cachedRanked of the last model that worked
 
 function getApiKeys() {
   return [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2, process.env.GROQ_API_KEY_3].filter(
@@ -61,29 +65,34 @@ async function fetchAvailableModels(apiKey) {
     .filter((id) => id && !NON_CHAT_PATTERNS.some((p) => p.test(id)));
 }
 
-function pickBestModel(ids) {
+function rankModels(ids) {
+  const ranked = [];
+  const remaining = new Set(ids);
   for (const pattern of PREFERRED_PATTERNS) {
-    const match = ids.find((id) => pattern.test(id));
-    if (match) return match;
+    const match = ids.find((id) => remaining.has(id) && pattern.test(id));
+    if (match) {
+      ranked.push(match);
+      remaining.delete(match);
+    }
   }
-  return ids[0] ?? null;
+  return [...ranked, ...remaining];
 }
 
-async function resolveModel(apiKey) {
-  if (process.env.GROQ_MODEL) return process.env.GROQ_MODEL; // explicit pin always wins
-  if (cachedModel) return cachedModel;
-
-  const ids = await fetchAvailableModels(apiKey);
-  const best = pickBestModel(ids);
-  if (!best) throw new Error('Groq returned no usable chat models');
-  cachedModel = best;
-  console.log(`[groq] auto-selected model: ${best}`);
-  return best;
+async function getCandidates(apiKey) {
+  if (!cachedRanked) {
+    const ids = await fetchAvailableModels(apiKey);
+    if (ids.length === 0) throw new Error('Groq returned no usable chat models');
+    cachedRanked = rankModels(ids);
+    workingIndex = 0;
+    console.log(`[groq] model candidates (ranked): ${cachedRanked.join(', ')}`);
+  }
+  return cachedRanked;
 }
 
 /** Exposed for GET /api/health so you can see what model is actually in use. */
 export function getResolvedModelName() {
-  return process.env.GROQ_MODEL || cachedModel || null;
+  if (process.env.GROQ_MODEL) return process.env.GROQ_MODEL;
+  return cachedRanked?.[workingIndex] ?? null;
 }
 
 function buildEvidenceBlock(evidenceBundle) {
@@ -122,30 +131,57 @@ async function doChatCall(apiKey, model, systemPrompt, userContent, maxTokens) {
   });
 }
 
-async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens, { allowModelRetry = true } = {}) {
-  const model = await resolveModel(apiKey);
-  const res = await doChatCall(apiKey, model, systemPrompt, userContent, maxTokens);
+/** True for failures that mean "this model won't serve us" — not existing,
+ * or rate-limited/too-large for this account's tier on this model — as
+ * opposed to a transient network blip, which shouldn't burn through the
+ * whole candidate list. */
+function isModelLevelFailure(status) {
+  return status === 404 || status === 429;
+}
 
-  if (!res.ok) {
-    const status = res.status;
-    const bodyText = await res.text().catch(() => '');
-    const isModelGone = status === 404 && /model_not_found/i.test(bodyText);
-
-    // The auto-picked (or previously-working) model stopped existing
-    // mid-session — Groq deprecates models without much notice. Drop the
-    // cache and re-resolve once before giving up, so the app self-heals
-    // instead of staying broken until someone edits code.
-    if (isModelGone && allowModelRetry && !process.env.GROQ_MODEL) {
-      console.error(`[groq] model "${model}" no longer available — re-resolving and retrying once`);
-      cachedModel = null;
-      return callGroqJSON(apiKey, systemPrompt, userContent, maxTokens, { allowModelRetry: false });
+async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
+  if (process.env.GROQ_MODEL) {
+    const res = await doChatCall(apiKey, process.env.GROQ_MODEL, systemPrompt, userContent, maxTokens);
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '');
+      throw Object.assign(new Error(`Groq request failed (${res.status}): ${bodyText.slice(0, 300)}`), {
+        status: res.status,
+      });
     }
-
-    const err = new Error(`Groq request failed (${status}): ${bodyText.slice(0, 300)}`);
-    err.status = status;
-    throw err;
+    return parseChatResponse(res);
   }
 
+  const candidates = await getCandidates(apiKey);
+  let lastError;
+
+  for (let attempt = 0; attempt < candidates.length; attempt++) {
+    const idx = (workingIndex + attempt) % candidates.length;
+    const model = candidates[idx];
+    const res = await doChatCall(apiKey, model, systemPrompt, userContent, maxTokens);
+
+    if (res.ok) {
+      if (idx !== workingIndex) {
+        console.log(`[groq] switched to model "${model}" (previous candidate failed)`);
+      }
+      workingIndex = idx;
+      return parseChatResponse(res);
+    }
+
+    const bodyText = await res.text().catch(() => '');
+    lastError = Object.assign(new Error(`Groq request failed (${res.status}): ${bodyText.slice(0, 300)}`), {
+      status: res.status,
+    });
+
+    if (!isModelLevelFailure(res.status)) {
+      throw lastError; // not a model problem (e.g. auth/network) — don't burn through candidates for it
+    }
+    console.error(`[groq] model "${model}" failed (${res.status}), trying next candidate:`, bodyText.slice(0, 200));
+  }
+
+  throw lastError ?? new Error('All Groq model candidates failed');
+}
+
+async function parseChatResponse(res) {
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error('Groq response missing content');
