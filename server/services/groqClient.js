@@ -131,12 +131,22 @@ async function doChatCall(apiKey, model, systemPrompt, userContent, maxTokens) {
   });
 }
 
+// Groq returns 400 for a genuinely malformed request (missing field, bad
+// enum, etc — a real bug, don't hide it) but ALSO for "this model's context
+// window is too small for this prompt" — a per-model capacity limit, not
+// unlike 429's per-model rate limit. Only the latter should fall through
+// to the next candidate.
+const CONTEXT_LENGTH_PATTERN = /reduce the length|context.{0,10}length|maximum.{0,20}tokens|too (long|many tokens)/i;
+
 /** True for failures that mean "this model won't serve us" — not existing,
- * or rate-limited/too-large for this account's tier on this model — as
- * opposed to a transient network blip, which shouldn't burn through the
- * whole candidate list. */
-function isModelLevelFailure(status) {
-  return status === 404 || status === 429;
+ * rate-limited/too-large for this account's tier, or too small a context
+ * window for this prompt — as opposed to a genuine bad request or a
+ * transient network blip, which shouldn't burn through the whole
+ * candidate list. */
+function isModelLevelFailure(status, bodyText) {
+  if (status === 404 || status === 429) return true;
+  if (status === 400 && CONTEXT_LENGTH_PATTERN.test(bodyText)) return true;
+  return false;
 }
 
 async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
@@ -172,8 +182,8 @@ async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
       status: res.status,
     });
 
-    if (!isModelLevelFailure(res.status)) {
-      throw lastError; // not a model problem (e.g. auth/network) — don't burn through candidates for it
+    if (!isModelLevelFailure(res.status, bodyText)) {
+      throw lastError; // not a model problem (e.g. auth/network/malformed request) — don't burn through candidates for it
     }
     console.error(`[groq] model "${model}" failed (${res.status}), trying next candidate:`, bodyText.slice(0, 200));
   }
