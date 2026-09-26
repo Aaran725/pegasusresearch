@@ -7,14 +7,83 @@
 //                    evidence the orchestrator assembled (base + per-
 //                    competitor + founder + risk searches), citing or
 //                    abstaining on every claim.
+//
+// Model selection is auto-discovered rather than hardcoded: Groq
+// deprecates/renames models fairly often (this broke once already —
+// llama-3.3-70b-versatile stopped existing), so hardcoding one just means
+// this breaks again later. Set GROQ_MODEL to pin a specific model; leave
+// it unset to auto-pick a reasonable chat model from Groq's live list,
+// with automatic re-resolution if the picked model ever 404s.
 
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_CHAT_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODELS_ENDPOINT = 'https://api.groq.com/openai/v1/models';
+
+// Filters out models that exist on Groq but aren't general chat/instruct
+// models (speech-to-text, safety classifiers, etc).
+const NON_CHAT_PATTERNS = [/whisper/i, /guard/i, /tts/i, /moderation/i, /prompt-guard/i];
+
+// When multiple chat models are available, prefer larger/well-known
+// instruct models in roughly this order; falls back to "whatever's first"
+// if none of these match.
+const PREFERRED_PATTERNS = [
+  /versatile/i,
+  /maverick/i,
+  /scout/i,
+  /405b/i,
+  /72b/i,
+  /70b/i,
+  /deepseek/i,
+  /qwen.*(32b|72b)/i,
+  /mixtral/i,
+  /gemma2/i,
+  /llama-3\.[13]/i,
+];
+
+let cachedModel = null;
 
 function getApiKeys() {
   return [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2, process.env.GROQ_API_KEY_3].filter(
     Boolean
   );
+}
+
+async function fetchAvailableModels(apiKey) {
+  const res = await fetch(GROQ_MODELS_ENDPOINT, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Could not list Groq models (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return (data.data ?? [])
+    .map((m) => m.id)
+    .filter((id) => id && !NON_CHAT_PATTERNS.some((p) => p.test(id)));
+}
+
+function pickBestModel(ids) {
+  for (const pattern of PREFERRED_PATTERNS) {
+    const match = ids.find((id) => pattern.test(id));
+    if (match) return match;
+  }
+  return ids[0] ?? null;
+}
+
+async function resolveModel(apiKey) {
+  if (process.env.GROQ_MODEL) return process.env.GROQ_MODEL; // explicit pin always wins
+  if (cachedModel) return cachedModel;
+
+  const ids = await fetchAvailableModels(apiKey);
+  const best = pickBestModel(ids);
+  if (!best) throw new Error('Groq returned no usable chat models');
+  cachedModel = best;
+  console.log(`[groq] auto-selected model: ${best}`);
+  return best;
+}
+
+/** Exposed for GET /api/health so you can see what model is actually in use. */
+export function getResolvedModelName() {
+  return process.env.GROQ_MODEL || cachedModel || null;
 }
 
 function buildEvidenceBlock(evidenceBundle) {
@@ -33,15 +102,15 @@ function buildEvidenceBlock(evidenceBundle) {
   return block || '(no web evidence found)';
 }
 
-async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
-  const res = await fetch(GROQ_ENDPOINT, {
+async function doChatCall(apiKey, model, systemPrompt, userContent, maxTokens) {
+  return fetch(GROQ_CHAT_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
@@ -51,11 +120,28 @@ async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
       response_format: { type: 'json_object' },
     }),
   });
+}
+
+async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens, { allowModelRetry = true } = {}) {
+  const model = await resolveModel(apiKey);
+  const res = await doChatCall(apiKey, model, systemPrompt, userContent, maxTokens);
 
   if (!res.ok) {
     const status = res.status;
-    const body = await res.text().catch(() => '');
-    const err = new Error(`Groq request failed (${status}): ${body.slice(0, 300)}`);
+    const bodyText = await res.text().catch(() => '');
+    const isModelGone = status === 404 && /model_not_found/i.test(bodyText);
+
+    // The auto-picked (or previously-working) model stopped existing
+    // mid-session — Groq deprecates models without much notice. Drop the
+    // cache and re-resolve once before giving up, so the app self-heals
+    // instead of staying broken until someone edits code.
+    if (isModelGone && allowModelRetry && !process.env.GROQ_MODEL) {
+      console.error(`[groq] model "${model}" no longer available — re-resolving and retrying once`);
+      cachedModel = null;
+      return callGroqJSON(apiKey, systemPrompt, userContent, maxTokens, { allowModelRetry: false });
+    }
+
+    const err = new Error(`Groq request failed (${status}): ${bodyText.slice(0, 300)}`);
     err.status = status;
     throw err;
   }

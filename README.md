@@ -9,8 +9,9 @@ number cited back to a source.
 
 - **Frontend:** React 19 + Vite, Tailwind CSS v4, Recharts, Lucide React
 - **Backend:** Express (Node), holds all API keys server-side
-- **Research pipeline:** Tavily (live web search) → Groq/Llama 3.3 70B
-  (evidence-grounded synthesis, cite-or-abstain)
+- **Research pipeline:** Tavily (live web search) → Groq (evidence-grounded
+  synthesis, cite-or-abstain) — chat model is auto-detected, not hardcoded
+  (see below)
 
 ## Why there's a backend
 
@@ -39,6 +40,12 @@ frontend and the API from one process).
 
 - **Groq** (https://console.groq.com/keys) — free tier. Up to 3 keys can be
   set (`GROQ_API_KEY`, `_2`, `_3`) and are rotated on failure/rate-limit.
+  The chat model isn't hardcoded — `server/services/groqClient.js` queries
+  Groq's live `/models` list and picks a suitable one automatically (and
+  re-picks if the one it's using ever gets deprecated mid-session, which
+  Groq does periodically). Set `GROQ_MODEL` in `.env` to pin a specific
+  model instead. `GET /api/health` reports whichever model is currently
+  in use.
 - **Tavily** (https://tavily.com) — free tier, 1,000 search credits/month.
   A full research run costs up to 9 credits (5 base queries + up to 4
   follow-ups — see below), so the free tier covers roughly 100+ company

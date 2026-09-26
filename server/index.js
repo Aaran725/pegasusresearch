@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import researchRouter from './routes/research.js';
 import portfolioRouter from './routes/portfolio.js';
 import trendsRouter from './routes/trends.js';
+import { getResolvedModelName } from './services/groqClient.js';
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ app.get('/api/health', (_req, res) => {
       Boolean
     ).length,
     tavilyConfigured: Boolean(process.env.TAVILY_API_KEY),
+    groqModel: getResolvedModelName() ?? 'auto (not yet resolved — resolves on first search)',
   });
 });
 
