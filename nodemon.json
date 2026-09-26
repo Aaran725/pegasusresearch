@@ -1,0 +1,5 @@
+{
+  "watch": ["server"],
+  "ignore": ["server/data-cache/**"],
+  "ext": "js,mjs,cjs,json"
+}
