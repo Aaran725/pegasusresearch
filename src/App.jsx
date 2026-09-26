@@ -6,7 +6,15 @@ import Dashboard from './components/Dashboard';
 import EmptyState from './components/EmptyState';
 import PlaceholderView from './components/PlaceholderView';
 import { getStartupData } from './data/mockStartups';
-import { fetchStartupMemo, hasGroqKeysConfigured } from './services/groqService';
+import { fetchStartupMemo } from './services/researchService';
+
+const NOTICE_BY_CODE = {
+  no_evidence:
+    'No public web results found for this name — it may not exist, or may not have any online footprint. Showing a directional estimate instead.',
+  search_failed: 'Live web search is unavailable right now — showing demo data instead.',
+  synthesis_failed: 'Found web evidence, but memo synthesis failed — showing demo data instead.',
+  network_error: 'Could not reach the research backend — showing demo data instead.',
+};
 
 export default function App() {
   const [activeNav, setActiveNav] = useState('search');
@@ -23,20 +31,18 @@ export default function App() {
     setLoading(true);
     setNotice(null);
 
-    if (hasGroqKeysConfigured()) {
-      try {
-        const memo = await fetchStartupMemo(trimmed);
-        setData(memo);
-        setSource('groq');
-        setLoading(false);
-        return;
-      } catch {
-        setNotice('Live AI analysis is unavailable right now — showing demo data instead.');
-      }
+    try {
+      const memo = await fetchStartupMemo(trimmed);
+      setData(memo);
+      setSource('groq+tavily');
+      setLoading(false);
+      return;
+    } catch (err) {
+      setNotice(NOTICE_BY_CODE[err.code] ?? NOTICE_BY_CODE.network_error);
     }
 
     // Fallback: curated or deterministically generated mock data, so the
-    // dashboard never breaks even without a working Groq key.
+    // dashboard never breaks even without a working search/model pipeline.
     setData(getStartupData(trimmed));
     setSource('mock');
     setLoading(false);
@@ -64,7 +70,7 @@ export default function App() {
                   loading
                     ? 'Analyzing…'
                     : data
-                    ? `Live · ${data.stage}`
+                    ? `${source === 'groq+tavily' ? 'Live research' : 'Demo data'} · ${data.stage}`
                     : 'Idle · awaiting search'
                 }
                 sectorLabel={data?.sector}
@@ -81,8 +87,10 @@ export default function App() {
               {loading && (
                 <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
                   <Loader2 size={26} className="text-accent-soft animate-spin" />
-                  <p className="text-[13px] text-text-muted">
-                    Running due diligence on <span className="text-text font-medium">{query}</span>…
+                  <p className="text-[13px] text-text-muted text-center max-w-xs">
+                    Searching the live web and cross-checking sources on{' '}
+                    <span className="text-text font-medium">{query}</span>… this runs several
+                    searches, so it can take up to a minute.
                   </p>
                 </div>
               )}

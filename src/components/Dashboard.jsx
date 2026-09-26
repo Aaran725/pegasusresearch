@@ -23,7 +23,9 @@ export default function Dashboard({ data, source }) {
       <CompsTable data={data.comps} />
 
       <div className="text-[10px] text-text-dim text-center py-1">
-        {data.isGenerated
+        {source === 'groq+tavily'
+          ? 'Synthesized from live web search — verify critical figures against the linked sources before acting on them'
+          : data.isGenerated
           ? 'Directional estimate · not verified against primary sources'
           : 'Illustrative data for demo purposes'}{' '}
         · Pegasus Analyst AI

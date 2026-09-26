@@ -9,10 +9,16 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { tooltipStyle, axisTickStyle, gridStroke } from './ChartTooltip';
+import NoDataNotice from './NoDataNotice';
 
 export default function CompetitorScatterChart({ data }) {
-  const subject = data.filter((d) => d.subject);
-  const others = data.filter((d) => !d.subject);
+  const entries = data ?? [];
+  // Defensive fallback: if nothing is flagged subject:true (shouldn't happen
+  // per the schema, but LLM output isn't guaranteed), treat the first entry
+  // as the subject rather than rendering an unlabeled chart.
+  const hasSubject = entries.some((d) => d.subject);
+  const subject = hasSubject ? entries.filter((d) => d.subject) : entries.slice(0, 1);
+  const others = hasSubject ? entries.filter((d) => !d.subject) : entries.slice(1);
 
   return (
     <div className="bg-panel border border-border rounded-[10px] p-4 flex flex-col gap-1 min-w-0">
@@ -20,6 +26,9 @@ export default function CompetitorScatterChart({ data }) {
         <h3 className="text-[13px] font-semibold text-text">Competitor Landscape</h3>
         <span className="text-[10px] tracking-wider uppercase text-text-faint">Innovation × Market Traction</span>
       </div>
+      {entries.length === 0 ? (
+        <NoDataNotice label="competitor" />
+      ) : (
       <div className="h-[260px] mt-1 -ml-2">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 8, right: 20, bottom: 4, left: 0 }}>
@@ -74,6 +83,8 @@ export default function CompetitorScatterChart({ data }) {
           </ScatterChart>
         </ResponsiveContainer>
       </div>
+      )}
+      {entries.length > 0 && (
       <div className="flex items-center gap-4 flex-wrap pt-1">
         <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
           <span className="w-2 h-2 rounded-sm bg-accent" />
@@ -84,6 +95,7 @@ export default function CompetitorScatterChart({ data }) {
           Comparables · bubble size = capital raised
         </span>
       </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,7 @@
-function MetricCard({ label, value, trend, trendPositive, sub, isText }) {
+function MetricCard({ label, value, trend, sub, isText }) {
+  const hasValue = value !== null && value !== undefined && value !== '';
+  const trendIsNegative = typeof trend === 'string' && trend.trim().startsWith('-');
+
   return (
     <div className="bg-panel border border-border rounded-[10px] px-4 py-3.5 flex flex-col gap-2 min-w-0">
       <div className="text-[10px] font-semibold tracking-[0.14em] uppercase text-text-muted truncate">
@@ -6,25 +9,25 @@ function MetricCard({ label, value, trend, trendPositive, sub, isText }) {
       </div>
       <div className="flex items-baseline justify-between gap-2 min-w-0">
         <span
-          title={isText ? value : undefined}
-          className={`font-semibold text-text tracking-tight leading-tight truncate ${
-            isText ? 'text-[15px]' : 'text-[22px] sm:text-2xl font-mono'
-          }`}
+          title={isText && hasValue ? value : undefined}
+          className={`font-semibold tracking-tight leading-tight truncate ${
+            hasValue ? 'text-text' : 'text-text-dim italic'
+          } ${isText ? 'text-[15px]' : 'text-[22px] sm:text-2xl font-mono'}`}
         >
-          {value}
+          {hasValue ? value : 'Not found'}
         </span>
       </div>
       <div className="flex items-center gap-1.5 min-w-0">
         {trend && (
           <span
             className={`text-[11px] font-semibold font-mono shrink-0 ${
-              trendPositive ? 'text-positive' : 'text-accent-soft'
+              trendIsNegative ? 'text-negative' : 'text-positive'
             }`}
           >
             {trend}
           </span>
         )}
-        <span className="text-[11px] text-text-faint truncate">{sub}</span>
+        {sub && <span className="text-[11px] text-text-faint truncate">{sub}</span>}
       </div>
     </div>
   );
@@ -36,14 +39,12 @@ export default function MetricsBar({ data }) {
       label: 'Estimated Valuation',
       value: data.valuation,
       trend: data.valuationTrend,
-      trendPositive: true,
       sub: 'vs. peers',
     },
     {
       label: 'Total Funding Raised',
       value: data.totalRaised,
       trend: data.raisedTrend,
-      trendPositive: true,
       sub: 'since inception',
     },
     {
@@ -57,7 +58,6 @@ export default function MetricsBar({ data }) {
       label: 'Target Market (TAM)',
       value: data.tam,
       trend: data.tamTrend,
-      trendPositive: true,
       sub: 'CAGR',
     },
   ];

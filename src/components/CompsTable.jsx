@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import NoDataNotice from './NoDataNotice';
 
 const TONE_STYLES = {
   blue: 'text-accent-soft bg-accent/10 border-accent/25',
@@ -17,15 +18,19 @@ const COLUMNS = [
 
 export default function CompsTable({ data }) {
   const [hoverRow, setHoverRow] = useState(-1);
+  const rows = data ?? [];
 
   return (
     <div className="bg-panel border border-border rounded-[10px] overflow-hidden">
       <div className="flex items-baseline justify-between gap-2 flex-wrap px-4 py-3.5 border-b border-border">
         <h3 className="text-[13px] font-semibold text-text">Comparable Companies (Comps)</h3>
         <span className="text-[10px] tracking-wider uppercase text-text-faint">
-          {data.length} companies · EV / Revenue basis
+          {rows.length} {rows.length === 1 ? 'company' : 'companies'} · EV / Revenue basis
         </span>
       </div>
+      {rows.length === 0 ? (
+        <NoDataNotice label="comparable company" />
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full border-collapse min-w-[640px]">
           <thead>
@@ -46,7 +51,7 @@ export default function CompsTable({ data }) {
             </tr>
           </thead>
           <tbody>
-            {data.map((c, i) => {
+            {rows.map((c, i) => {
               const hovered = hoverRow === i;
               const rowBg = c.subject
                 ? 'bg-accent/5'
@@ -71,20 +76,20 @@ export default function CompsTable({ data }) {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-right text-[13px] text-text/90 font-mono border-b border-border-soft whitespace-nowrap">
-                    {c.valuation}
+                    {c.valuation ?? '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-[13px] text-text-muted font-mono border-b border-border-soft whitespace-nowrap">
-                    {c.revenue}
+                    {c.revenue ?? '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-[13px] text-text/90 font-mono border-b border-border-soft whitespace-nowrap">
-                    {c.evRev}
+                    {c.evRev ?? '—'}
                   </td>
                   <td
                     className={`px-4 py-2.5 text-right text-[13px] font-mono border-b border-border-soft whitespace-nowrap ${
-                      c.up ? 'text-positive' : 'text-negative'
+                      c.growth == null ? 'text-text-faint' : c.up ? 'text-positive' : 'text-negative'
                     }`}
                   >
-                    {c.growth}
+                    {c.growth ?? '—'}
                   </td>
                   <td className="px-4 py-2.5 border-b border-border-soft">
                     <span
@@ -102,6 +107,7 @@ export default function CompsTable({ data }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

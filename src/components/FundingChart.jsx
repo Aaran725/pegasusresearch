@@ -10,25 +10,30 @@ import {
   Legend,
 } from 'recharts';
 import { tooltipStyle, axisTickStyle, gridStroke } from './ChartTooltip';
+import NoDataNotice from './NoDataNotice';
 
 function fmtB(v) {
   return v >= 1 ? `$${v.toFixed(1)}B` : `$${(v * 1000).toFixed(0)}M`;
 }
 
 export default function FundingChart({ data }) {
-  const totalRaised = data.reduce((sum, d) => sum + d.raised, 0);
+  const rounds = data ?? [];
+  const totalRaised = rounds.reduce((sum, d) => sum + (d.raised ?? 0), 0);
 
   return (
     <div className="bg-panel border border-border rounded-[10px] p-4 flex flex-col gap-1 min-w-0">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <h3 className="text-[13px] font-semibold text-text">Funding History &amp; Valuation Over Time</h3>
         <span className="text-[10px] tracking-wider uppercase text-text-faint">
-          {fmtB(totalRaised)} raised · {data.length} rounds
+          {fmtB(totalRaised)} raised · {rounds.length} {rounds.length === 1 ? 'round' : 'rounds'}
         </span>
       </div>
+      {rounds.length === 0 ? (
+        <NoDataNotice label="funding history" />
+      ) : (
       <div className="h-[260px] mt-1 -ml-2">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+          <ComposedChart data={rounds} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid stroke={gridStroke} vertical={false} />
             <XAxis dataKey="round" tick={axisTickStyle} axisLine={{ stroke: gridStroke }} tickLine={false} />
             <YAxis
@@ -70,6 +75,7 @@ export default function FundingChart({ data }) {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
   );
 }
