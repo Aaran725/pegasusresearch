@@ -22,8 +22,21 @@ const GROQ_CHAT_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODELS_ENDPOINT = 'https://api.groq.com/openai/v1/models';
 
 // Filters out models that exist on Groq but aren't general chat/instruct
-// models (speech-to-text, safety classifiers, etc).
-const NON_CHAT_PATTERNS = [/whisper/i, /guard/i, /tts/i, /moderation/i, /prompt-guard/i];
+// models — speech-to-text (whisper), text-to-speech (orpheus/canopylabs,
+// playai), safety classifiers (guard), etc. This list is inherently a
+// best-effort guess at Groq's current lineup (no live access to verify
+// from here) — a model slipping through gets caught downstream anyway by
+// isModelLevelFailure() when it fails in a model-specific way.
+const NON_CHAT_PATTERNS = [
+  /whisper/i,
+  /guard/i,
+  /\btts\b/i,
+  /moderation/i,
+  /prompt-guard/i,
+  /orpheus/i,
+  /canopylabs/i,
+  /playai/i,
+];
 
 // When multiple chat models are available, prefer larger/well-known
 // instruct models in roughly this order; anything not matching any pattern
@@ -32,6 +45,8 @@ const PREFERRED_PATTERNS = [
   /versatile/i,
   /maverick/i,
   /scout/i,
+  /gpt-oss-120b/i,
+  /gpt-oss/i,
   /405b/i,
   /72b/i,
   /70b/i,
@@ -131,22 +146,46 @@ async function doChatCall(apiKey, model, systemPrompt, userContent, maxTokens) {
   });
 }
 
-// Groq returns 400 for a genuinely malformed request (missing field, bad
-// enum, etc — a real bug, don't hide it) but ALSO for "this model's context
-// window is too small for this prompt" — a per-model capacity limit, not
-// unlike 429's per-model rate limit. Only the latter should fall through
-// to the next candidate.
-const CONTEXT_LENGTH_PATTERN = /reduce the length|context.{0,10}length|maximum.{0,20}tokens|too (long|many tokens)/i;
+// Groq (OpenAI-compatible) error bodies carry a structured error.code —
+// prefer checking that over guessing at message wording, which is fragile
+// and changes. Known model-specific codes seen in practice or documented:
+// model doesn't exist, needs org terms acceptance, prompt too big for its
+// context window, or plain rate-limited. New ones surface periodically
+// (this list has grown from real production failures more than once) —
+// the message-pattern fallback below catches ones not in this set yet.
+const MODEL_LEVEL_ERROR_CODES = new Set([
+  'model_not_found',
+  'model_terms_required',
+  'context_length_exceeded',
+  'rate_limit_exceeded',
+  'model_not_active',
+  'model_decommissioned',
+]);
 
-/** True for failures that mean "this model won't serve us" — not existing,
- * rate-limited/too-large for this account's tier, or too small a context
- * window for this prompt — as opposed to a genuine bad request or a
- * transient network blip, which shouldn't burn through the whole
+const MODEL_LEVEL_MESSAGE_PATTERN =
+  /reduce the length|context.{0,10}length|maximum.{0,20}tokens|too (long|many tokens)|terms acceptance|does not support|not supported for this model|decommissioned|deprecated/i;
+
+/** True for failures that mean "this model won't serve us" — gone,
+ * needs terms acceptance, too small a context window, rate-limited, or
+ * otherwise incapable — as opposed to a genuine bad request (our own bug)
+ * or a transient network blip, which shouldn't burn through the whole
  * candidate list. */
 function isModelLevelFailure(status, bodyText) {
   if (status === 404 || status === 429) return true;
-  if (status === 400 && CONTEXT_LENGTH_PATTERN.test(bodyText)) return true;
-  return false;
+  if (status !== 400) return false;
+
+  let code = null;
+  let message = bodyText;
+  try {
+    const parsed = JSON.parse(bodyText);
+    code = parsed?.error?.code ?? null;
+    message = parsed?.error?.message ?? bodyText;
+  } catch {
+    // body wasn't JSON — fall back to matching the raw text
+  }
+
+  if (code && MODEL_LEVEL_ERROR_CODES.has(code)) return true;
+  return MODEL_LEVEL_MESSAGE_PATTERN.test(message);
 }
 
 async function callGroqJSON(apiKey, systemPrompt, userContent, maxTokens) {
