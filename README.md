@@ -92,22 +92,59 @@ sizing (TAM/SAM/SOM) in particular is almost always `inferred`, not
 `verified` — real market-sizing breakdowns are rarely published anywhere
 a free search API can find them.
 
+## Making it a tool you'd actually use (Phase 5)
+
+- **Export Memo** is real — a client-side PDF (jsPDF + autotable) with every
+  section (metrics, verdict, funding, market sizing, comps, team, news,
+  risk flags, sources) laid out for printing or sharing, not just a
+  decorative button.
+- **Edit the AI's draft.** The AI Verdict paragraph and the four top KPI
+  values (valuation, funding, lead investors, TAM) are click-to-edit on
+  live-researched companies. Edits persist server-side per company
+  (`server/services/editsStore.js`) independently of the research cache —
+  a later Refresh re-runs search without wiping out your corrections, and
+  an edited field is visibly flagged `EDITED` rather than silently
+  overwritten. This only applies to live research; there's nowhere to
+  persist an edit to demo/mock data.
+- **Portfolio is a real backend-persisted watchlist**
+  (`server/services/portfolioStore.js`), not a placeholder. Add a company
+  from its dashboard, see it in the Portfolio tab with a one-click "View"
+  that reopens it (from cache — instant, no quota spent).
+- **Market Trends is real, honestly scoped.** There's no external
+  market-data feed wired in, so instead of faking one, `/api/trends`
+  aggregates *your own research history* — sector/stage breakdown, average
+  valuation per sector, recent activity — computed directly from the
+  research cache. The view says exactly that, rather than presenting it as
+  industry data it isn't.
+
+**Deliberately not built:** multi-analyst auth (accounts, sessions, access
+control). That's a materially different, larger scope than the rest of
+Phase 5 — this is still a single-user/local tool, and bolting on a token
+login without real multi-user data isolation would be worse than being
+upfront that it isn't there yet.
+
 ## Project layout
 
 ```
 server/
   index.js                          Express entry point (dev: API only; prod: API + static frontend)
-  routes/research.js                POST /api/research, GET /api/quota
+  routes/research.js                POST /api/research, PATCH /api/research/edits, GET /api/quota
+  routes/portfolio.js               GET/POST /api/portfolio, DELETE /api/portfolio/:name
+  routes/trends.js                  GET /api/trends — aggregates from the research cache
   services/tavilyClient.js          Live web search + quota recording
   services/groqClient.js            Evidence-grounded LLM synthesis + competitor-naming call
   services/researchOrchestrator.js  Wires search -> follow-ups -> synthesis, error classification
   services/researchCache.js         24h file-based cache per company
   services/quotaTracker.js          Monthly Tavily credit usage, persisted to disk
+  services/editsStore.js            Analyst edits/overrides, merged onto memos at read time
+  services/portfolioStore.js        Watchlist (single JSON file)
 
 src/
-  components/    UI building blocks (charts, tables, sidebar, header, risk/team/news panels)
+  components/    UI building blocks (charts, tables, sidebar, header, risk/team/news panels,
+                  EditableField, PortfolioView, TrendsView)
   data/          Mock/generated fallback startup data
-  services/researchService.js   Client -> our own backend (never calls Groq/Tavily directly)
+  services/       researchService.js (backend calls), portfolioService.js, trendsService.js
+  utils/exportMemo.js   Client-side PDF generation
 ```
 
 ## Environment variables

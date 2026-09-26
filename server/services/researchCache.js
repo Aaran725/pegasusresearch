@@ -37,3 +37,27 @@ export function setCached(company, { memo, researchTrace }) {
   fs.writeFileSync(keyToPath(company), JSON.stringify(entry), 'utf-8');
   return entry;
 }
+
+/**
+ * Reads every cached research entry. Used by the trends view to compute
+ * real aggregates over what's actually been researched — never fabricated
+ * "market data", since we have no external market-data source.
+ */
+export function listAllCached() {
+  let files;
+  try {
+    files = fs.readdirSync(CACHE_DIR).filter((f) => f.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const entries = [];
+  for (const file of files) {
+    try {
+      const entry = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, file), 'utf-8'));
+      entries.push(entry);
+    } catch {
+      continue; // skip corrupt/partial files rather than failing the whole list
+    }
+  }
+  return entries;
+}

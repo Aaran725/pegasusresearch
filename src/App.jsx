@@ -1,12 +1,16 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Briefcase, TrendingUp, Settings, AlertTriangle, Loader2 } from 'lucide-react';
+import { Settings, AlertTriangle, Loader2 } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import SearchHeader from './components/SearchHeader';
 import Dashboard from './components/Dashboard';
 import EmptyState from './components/EmptyState';
 import PlaceholderView from './components/PlaceholderView';
+import PortfolioView from './components/PortfolioView';
+import TrendsView from './components/TrendsView';
 import { getStartupData } from './data/mockStartups';
-import { fetchStartupMemo, fetchQuotaUsage } from './services/researchService';
+import { fetchStartupMemo, fetchQuotaUsage, saveMemoEdit } from './services/researchService';
+import { fetchPortfolio, addToPortfolio, removeFromPortfolio } from './services/portfolioService';
+import { downloadMemoPdf } from './utils/exportMemo';
 
 const NOTICE_BY_CODE = {
   no_evidence:
@@ -25,6 +29,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
   const [quota, setQuota] = useState(null);
+  const [portfolioNames, setPortfolioNames] = useState(new Set());
 
   const refreshQuota = useCallback(() => {
     fetchQuotaUsage().then(setQuota).catch(() => {});
@@ -32,6 +37,9 @@ export default function App() {
 
   useEffect(() => {
     refreshQuota();
+    fetchPortfolio()
+      .then((items) => setPortfolioNames(new Set(items.map((i) => i.name.toLowerCase()))))
+      .catch(() => {});
   }, [refreshQuota]);
 
   const runSearch = useCallback(
@@ -72,6 +80,41 @@ export default function App() {
     if (query) runSearch(query, { forceRefresh: true });
   };
 
+  const handleViewFromPortfolio = (name) => {
+    setActiveNav('search');
+    setQuery(name);
+    runSearch(name); // served from cache if already researched — instant, no quota spent
+  };
+
+  const handleSaveField = async (field, value) => {
+    if (!data?.name) return;
+    const { edits } = await saveMemoEdit(data.name, field, value);
+    setData((prev) => ({ ...prev, ...edits, editedFields: Object.keys(edits) }));
+  };
+
+  const handleToggleWatchlist = async () => {
+    if (!data?.name) return;
+    const key = data.name.toLowerCase();
+    if (portfolioNames.has(key)) {
+      await removeFromPortfolio(data.name);
+      setPortfolioNames((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    } else {
+      await addToPortfolio({
+        name: data.name,
+        sector: data.sector,
+        stage: data.stage,
+        valuation: data.valuation,
+        tam: data.tam,
+        logoInitial: data.logoInitial,
+      });
+      setPortfolioNames((prev) => new Set(prev).add(key));
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-bg text-text">
       <Sidebar active={activeNav} onNavigate={setActiveNav} quota={quota} />
@@ -94,6 +137,7 @@ export default function App() {
                 }
                 sectorLabel={data?.sector}
                 hasResult={Boolean(data)}
+                onExport={() => data && downloadMemoPdf(data, { source })}
               />
 
               {notice && (
@@ -115,27 +159,22 @@ export default function App() {
               )}
 
               {!loading && data && (
-                <Dashboard data={data} source={source} onRefresh={handleRefresh} />
+                <Dashboard
+                  data={data}
+                  source={source}
+                  onRefresh={handleRefresh}
+                  onSaveField={handleSaveField}
+                  inPortfolio={portfolioNames.has(data.name.toLowerCase())}
+                  onToggleWatchlist={handleToggleWatchlist}
+                />
               )}
               {!loading && !data && <EmptyState onPick={handlePick} />}
             </>
           )}
 
-          {activeNav === 'portfolio' && (
-            <PlaceholderView
-              icon={Briefcase}
-              title="Portfolio"
-              description="Track live positions, follow-on decisions, and portfolio-company signals in one view."
-            />
-          )}
+          {activeNav === 'portfolio' && <PortfolioView onView={handleViewFromPortfolio} />}
 
-          {activeNav === 'trends' && (
-            <PlaceholderView
-              icon={TrendingUp}
-              title="Market Trends"
-              description="Sector heatmaps, funding velocity, and emerging category signals across deep tech and physical AI."
-            />
-          )}
+          {activeNav === 'trends' && <TrendsView />}
 
           {activeNav === 'settings' && (
             <PlaceholderView

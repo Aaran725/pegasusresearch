@@ -57,3 +57,22 @@ export async function fetchQuotaUsage() {
   if (!res.ok) throw new Error(`Quota request failed (${res.status})`);
   return res.json();
 }
+
+/**
+ * Saves an analyst's correction/override for one field on an already
+ * -researched company (human-in-the-loop). Only fields the server
+ * whitelists (aiVerdict, valuation, totalRaised, leadInvestors, tam) are
+ * accepted — see server/services/editsStore.js.
+ */
+export async function saveMemoEdit(companyName, field, value) {
+  const res = await fetch('/api/research/edits', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company: companyName, edits: { [field]: value } }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Saving edit failed (${res.status})`);
+  }
+  return res.json();
+}

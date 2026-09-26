@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import dotenv from 'dotenv';
 import researchRouter from './routes/research.js';
+import portfolioRouter from './routes/portfolio.js';
+import trendsRouter from './routes/trends.js';
 
 dotenv.config();
 
@@ -23,6 +25,8 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api', researchRouter);
+app.use('/api', portfolioRouter);
+app.use('/api', trendsRouter);
 
 // In production, this server also serves the built frontend so there's a
 // single process to deploy. In dev, Vite's own server handles the frontend

@@ -1,3 +1,4 @@
+import { Bookmark, BookmarkCheck } from 'lucide-react';
 import StartupHeader from './StartupHeader';
 import MetricsBar from './MetricsBar';
 import AIVerdict from './AIVerdict';
@@ -10,25 +11,39 @@ import NewsTimeline from './NewsTimeline';
 import RiskFlags from './RiskFlags';
 import FoundingTeam from './FoundingTeam';
 
-export default function Dashboard({ data, source, onRefresh }) {
+export default function Dashboard({ data, source, onRefresh, onSaveField, inPortfolio, onToggleWatchlist }) {
   const isLive = source === 'groq+tavily';
 
   return (
     <div className="flex flex-col gap-3.5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <StartupHeader data={data} />
-        {isLive && (
-          <ResearchMeta
-            fetchedAt={data.fetchedAt}
-            cached={data.cached}
-            stale={data.stale}
-            onRefresh={onRefresh}
-          />
-        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          {isLive && (
+            <ResearchMeta
+              fetchedAt={data.fetchedAt}
+              cached={data.cached}
+              stale={data.stale}
+              onRefresh={onRefresh}
+            />
+          )}
+          <button
+            type="button"
+            onClick={onToggleWatchlist}
+            className={`flex items-center gap-1.5 text-[11.5px] font-medium rounded-md px-2.5 py-1.5 border transition-colors ${
+              inPortfolio
+                ? 'text-accent-soft bg-accent/10 border-accent/25'
+                : 'text-text-muted bg-white/5 border-border hover:text-text hover:border-white/20'
+            }`}
+          >
+            {inPortfolio ? <BookmarkCheck size={13} /> : <Bookmark size={13} />}
+            {inPortfolio ? 'In Portfolio' : 'Add to Portfolio'}
+          </button>
+        </div>
       </div>
 
-      <MetricsBar data={data} />
-      <AIVerdict data={data} source={source} />
+      <MetricsBar data={data} editable={isLive} onSaveField={onSaveField} />
+      <AIVerdict data={data} source={source} onSaveField={isLive ? onSaveField : null} />
 
       {isLive && <RiskFlags flags={data.riskFlags} />}
 

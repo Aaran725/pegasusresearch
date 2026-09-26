@@ -9,6 +9,7 @@ export default function SearchHeader({
   statusLabel,
   sectorLabel,
   hasResult,
+  onExport,
 }) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
@@ -77,6 +78,7 @@ export default function SearchHeader({
       <button
         type="button"
         disabled={!hasResult}
+        onClick={onExport}
         className="flex items-center gap-1.5 shrink-0 text-[12.5px] font-semibold text-text bg-panel-alt hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed border border-border hover:border-white/20 rounded-lg px-3.5 py-2 transition-colors"
       >
         <Download size={14} />

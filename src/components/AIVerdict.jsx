@@ -1,4 +1,5 @@
 import { ExternalLink, ChevronDown } from 'lucide-react';
+import EditableField from './EditableField';
 
 const CONFIDENCE_STYLES = {
   verified: 'text-positive bg-positive/10 border-positive/25',
@@ -35,10 +36,11 @@ function ConfidenceBadges({ confidence }) {
   );
 }
 
-export default function AIVerdict({ data, source }) {
+export default function AIVerdict({ data, source, onSaveField }) {
   const isLive = source === 'groq+tavily';
   const sources = data.sources ?? [];
   const trace = data.researchTrace ?? [];
+  const verdictText = <p className="text-[13px] text-text-muted leading-relaxed">{data.aiVerdict}</p>;
 
   return (
     <div className="bg-panel border border-border border-l-2 border-l-accent-strong rounded-[10px] px-5 py-4 flex flex-col gap-3">
@@ -51,7 +53,18 @@ export default function AIVerdict({ data, source }) {
             Pegasus thesis engine · {isLive ? 'live web-grounded research' : 'demo dataset'}
           </span>
         </div>
-        <p className="text-[13px] text-text-muted leading-relaxed">{data.aiVerdict}</p>
+        {onSaveField ? (
+          <EditableField
+            value={data.aiVerdict}
+            edited={data.editedFields?.includes('aiVerdict')}
+            multiline
+            onSave={(next) => onSaveField('aiVerdict', next)}
+          >
+            {verdictText}
+          </EditableField>
+        ) : (
+          verdictText
+        )}
       </div>
 
       {data.confidence && <ConfidenceBadges confidence={data.confidence} />}
