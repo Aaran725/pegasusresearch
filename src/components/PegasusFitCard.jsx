@@ -1,4 +1,5 @@
 import { Target } from 'lucide-react';
+import PegasusFitRadar from './PegasusFitRadar';
 
 // Pegasus Tech Ventures explicitly rejects thematic/checklist investing —
 // per Anis Uzzaman's own public statements, evaluation centers on founding
@@ -15,12 +16,6 @@ const CRITERIA = [
   { key: 'vcaasFit', label: 'VCaaS / Global-Expansion Fit' },
 ];
 
-function scoreColor(score) {
-  if (score >= 70) return 'bg-positive';
-  if (score >= 40) return 'bg-warning';
-  return 'bg-negative';
-}
-
 export default function PegasusFitCard({ fit }) {
   const items = CRITERIA.map((c) => ({ ...c, data: fit?.[c.key] })).filter((c) => c.data);
   if (items.length === 0) return null;
@@ -34,22 +29,19 @@ export default function PegasusFitCard({ fit }) {
           scored against Pegasus Tech Ventures' actual criteria
         </span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-        {items.map((c) => (
-          <div key={c.key} className="flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[11.5px] font-medium text-text">{c.label}</span>
-              <span className="text-[13px] font-mono font-semibold text-text">{c.data.score}</span>
+      <div className="flex flex-col lg:flex-row items-center gap-4">
+        <PegasusFitRadar fit={fit} />
+        <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 w-full">
+          {items.map((c) => (
+            <div key={c.key} className="flex flex-col gap-0.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11.5px] font-medium text-text">{c.label}</span>
+                <span className="text-[12px] font-mono font-semibold text-text-muted">{c.data.score}</span>
+              </div>
+              {c.data.note && <p className="text-[12px] text-text-muted leading-relaxed">{c.data.note}</p>}
             </div>
-            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${scoreColor(c.data.score)}`}
-                style={{ width: `${Math.max(0, Math.min(100, c.data.score))}%` }}
-              />
-            </div>
-            {c.data.note && <p className="text-[12px] text-text-muted leading-relaxed">{c.data.note}</p>}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

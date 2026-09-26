@@ -73,6 +73,40 @@ export function downloadMemoPdf(data, { source } = {}) {
   doc.setTextColor(140, 140, 140);
   y = drawParagraph(doc, y, generatedLine, { size: 8, color: [140, 140, 140] });
 
+  // --- Deal snapshot ---
+  if (data.dealSnapshot) {
+    const snap = [
+      ['Founded', data.dealSnapshot.founded],
+      ['HQ', data.dealSnapshot.hq],
+      ['Employees', data.dealSnapshot.employees],
+      ['Website', data.dealSnapshot.website],
+    ]
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('  ·  ');
+    if (snap) y = drawParagraph(doc, y, snap, { size: 8.5, color: [110, 110, 110] });
+  }
+
+  // --- Investment recommendation ---
+  if (data.investmentRecommendation?.verdict) {
+    y = drawSectionTitle(doc, y, 'Investment Recommendation');
+    y = drawParagraph(
+      doc,
+      y,
+      `${data.investmentRecommendation.verdict.toUpperCase()}${
+        data.investmentRecommendation.rationale ? ` — ${data.investmentRecommendation.rationale}` : ''
+      }`
+    );
+  }
+
+  // --- Executive summary ---
+  if (data.executiveSummary && data.executiveSummary.length > 0) {
+    y = drawSectionTitle(doc, y, 'Executive Summary');
+    for (const b of data.executiveSummary) {
+      y = drawParagraph(doc, y, `•  ${b}`);
+    }
+  }
+
   // --- Key metrics ---
   y = drawSectionTitle(doc, y, 'Key Metrics');
   autoTable(doc, {
@@ -99,6 +133,33 @@ export function downloadMemoPdf(data, { source } = {}) {
       .map(([k, v]) => `${k}: ${v}`)
       .join('  ·  ');
     y = drawParagraph(doc, y, `Confidence — ${confLine}`, { size: 8, color: [140, 140, 140] });
+  }
+
+  // --- SWOT ---
+  const swotSections = data.swot
+    ? [
+        ['Strengths', data.swot.strengths],
+        ['Weaknesses', data.swot.weaknesses],
+        ['Opportunities', data.swot.opportunities],
+        ['Threats', data.swot.threats],
+      ].filter(([, items]) => items && items.length > 0)
+    : [];
+  if (swotSections.length > 0) {
+    y = drawSectionTitle(doc, y, 'SWOT Analysis');
+    for (const [label, items] of swotSections) {
+      y = drawParagraph(doc, y, `${label}:`, { size: 9.5, color: [40, 40, 40] });
+      for (const item of items) {
+        y = drawParagraph(doc, y, `  •  ${item}`, { size: 8.5 });
+      }
+    }
+  }
+
+  // --- Competitive moat ---
+  if (data.competitiveMoat && data.competitiveMoat.length > 0) {
+    y = drawSectionTitle(doc, y, 'Competitive Moat');
+    for (const m of data.competitiveMoat) {
+      y = drawParagraph(doc, y, `${m.factor} [${(m.strength ?? '').toUpperCase()}]${m.note ? ` — ${m.note}` : ''}`);
+    }
   }
 
   // --- Risk flags ---
@@ -139,6 +200,34 @@ export function downloadMemoPdf(data, { source } = {}) {
     y = doc.lastAutoTable.finalY + 20;
   }
 
+  // --- Unit economics ---
+  const econEntries = data.unitEconomics
+    ? Object.entries({
+        'Gross Margin': data.unitEconomics.grossMargin,
+        'Burn Rate': data.unitEconomics.burnRate,
+        Runway: data.unitEconomics.runway,
+        CAC: data.unitEconomics.cac,
+        LTV: data.unitEconomics.ltv,
+      }).filter(([, v]) => v)
+    : [];
+  if (econEntries.length > 0) {
+    y = ensureRoom(doc, y, 60);
+    y = drawSectionTitle(doc, y, 'Unit Economics');
+    y = drawParagraph(doc, y, econEntries.map(([k, v]) => `${k}: ${v}`).join('  ·  '));
+  }
+
+  // --- Market trends ---
+  if (data.marketTrends && ((data.marketTrends.tailwinds?.length ?? 0) > 0 || (data.marketTrends.headwinds?.length ?? 0) > 0)) {
+    y = ensureRoom(doc, y, 60);
+    y = drawSectionTitle(doc, y, 'Market Trends');
+    for (const t of data.marketTrends.tailwinds ?? []) {
+      y = drawParagraph(doc, y, `[Tailwind] ${t}`);
+    }
+    for (const h of data.marketTrends.headwinds ?? []) {
+      y = drawParagraph(doc, y, `[Headwind] ${h}`);
+    }
+  }
+
   // --- Comps ---
   if (data.comps && data.comps.length > 0) {
     y = ensureRoom(doc, y, 100);
@@ -162,6 +251,15 @@ export function downloadMemoPdf(data, { source } = {}) {
     y = doc.lastAutoTable.finalY + 20;
   }
 
+  // --- Exit landscape ---
+  if (data.exitLandscape && data.exitLandscape.length > 0) {
+    y = ensureRoom(doc, y, 100);
+    y = drawSectionTitle(doc, y, 'Exit Landscape');
+    for (const e of data.exitLandscape) {
+      y = drawParagraph(doc, y, `${e.company} — ${e.outcome}${e.note ? `. ${e.note}` : ''}`);
+    }
+  }
+
   // --- Founding team ---
   if (data.team && data.team.length > 0) {
     y = ensureRoom(doc, y, 100);
@@ -169,6 +267,12 @@ export function downloadMemoPdf(data, { source } = {}) {
     for (const m of data.team) {
       y = drawParagraph(doc, y, `${m.name}${m.role ? ` — ${m.role}` : ''}${m.background ? `. ${m.background}` : ''}`);
     }
+  }
+
+  // --- Follow-on funding outlook ---
+  if (data.followOnOutlook) {
+    y = drawSectionTitle(doc, y, 'Follow-on Funding Outlook');
+    y = drawParagraph(doc, y, data.followOnOutlook);
   }
 
   // --- News timeline ---

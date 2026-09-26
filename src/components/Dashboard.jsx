@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Bookmark, BookmarkCheck } from 'lucide-react';
 import StartupHeader from './StartupHeader';
 import MetricsBar from './MetricsBar';
@@ -12,9 +13,23 @@ import RiskFlags from './RiskFlags';
 import FoundingTeam from './FoundingTeam';
 import DueDiligenceNotes from './DueDiligenceNotes';
 import PegasusFitCard from './PegasusFitCard';
+import DashboardTabs from './DashboardTabs';
+import ExecutiveSummary from './ExecutiveSummary';
+import InvestmentRecommendation from './InvestmentRecommendation';
+import DealSnapshot from './DealSnapshot';
+import SwotGrid from './SwotGrid';
+import CompetitiveMoat from './CompetitiveMoat';
+import UnitEconomics from './UnitEconomics';
+import MarketTrends from './MarketTrends';
+import ExitLandscape from './ExitLandscape';
+import FollowOnOutlook from './FollowOnOutlook';
+import ResearchMethodology from './ResearchMethodology';
+import SourcesConfidence from './SourcesConfidence';
+import CheckSizeGauge from './CheckSizeGauge';
 
 export default function Dashboard({ data, source, onRefresh, onSaveField, inPortfolio, onToggleWatchlist }) {
   const isLive = source === 'groq+tavily';
+  const [activeSection, setActiveSection] = useState('overview');
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -45,34 +60,67 @@ export default function Dashboard({ data, source, onRefresh, onSaveField, inPort
         </div>
       </div>
 
-      {/* Curated mock (isGenerated: false) is hand-verified demo data, distinct
-          from the fully-synthetic deterministic generator (isGenerated: true) —
-          shown here too so a live-search failure that falls back to curated
-          mock doesn't silently drop the scorecard. */}
-      {!data.isGenerated && data.pegasusFit && <PegasusFitCard fit={data.pegasusFit} />}
+      <DashboardTabs active={activeSection} onChange={setActiveSection} />
 
-      <MetricsBar data={data} editable={isLive} onSaveField={onSaveField} />
-      <AIVerdict data={data} source={source} onSaveField={isLive ? onSaveField : null} />
-
-      {isLive && <RiskFlags flags={data.riskFlags} />}
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-3.5">
-        <FundingChart data={data.fundingHistory} />
-        <MarketSizingChart data={data.marketSizing} />
-      </div>
-
-      <CompetitorScatterChart data={data.competitors} />
-
-      <CompsTable data={data.comps} />
-
-      {isLive && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
-          <NewsTimeline events={data.newsTimeline} />
-          <FoundingTeam team={data.team} />
+      {activeSection === 'overview' && (
+        <div className="flex flex-col gap-3.5">
+          <DealSnapshot snapshot={data.dealSnapshot} />
+          <ExecutiveSummary items={data.executiveSummary} />
+          <InvestmentRecommendation recommendation={data.investmentRecommendation} />
+          {!data.isGenerated && <PegasusFitCard fit={data.pegasusFit} />}
+          <MetricsBar data={data} editable={isLive} onSaveField={onSaveField} />
         </div>
       )}
 
-      {isLive && data.depth === 'deep' && <DueDiligenceNotes data={data} />}
+      {activeSection === 'thesis' && (
+        <div className="flex flex-col gap-3.5">
+          <AIVerdict data={data} source={source} onSaveField={isLive ? onSaveField : null} />
+          <SwotGrid swot={data.swot} />
+          <CompetitiveMoat moat={data.competitiveMoat} />
+        </div>
+      )}
+
+      {activeSection === 'financials' && (
+        <div className="flex flex-col gap-3.5">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-3.5">
+            <FundingChart data={data.fundingHistory} />
+            <MarketSizingChart data={data.marketSizing} />
+          </div>
+          <CheckSizeGauge fundingHistory={data.fundingHistory} />
+          <UnitEconomics economics={data.unitEconomics} />
+          <MarketTrends trends={data.marketTrends} />
+        </div>
+      )}
+
+      {activeSection === 'competitive' && (
+        <div className="flex flex-col gap-3.5">
+          <CompetitorScatterChart data={data.competitors} />
+          <CompsTable data={data.comps} />
+          <ExitLandscape exits={data.exitLandscape} />
+        </div>
+      )}
+
+      {activeSection === 'diligence' && (
+        <div className="flex flex-col gap-3.5">
+          <FoundingTeam team={data.team} />
+          <DueDiligenceNotes data={data} />
+          <FollowOnOutlook outlook={data.followOnOutlook} />
+        </div>
+      )}
+
+      {activeSection === 'risk' && (
+        <div className="flex flex-col gap-3.5">
+          {isLive && <RiskFlags flags={data.riskFlags} />}
+          <NewsTimeline events={data.newsTimeline} />
+        </div>
+      )}
+
+      {activeSection === 'sources' && (
+        <div className="flex flex-col gap-3.5">
+          <SourcesConfidence data={data} />
+          <ResearchMethodology trace={data.researchTrace} depth={data.depth} />
+        </div>
+      )}
 
       <div className="text-[10px] text-text-dim text-center py-1">
         {isLive

@@ -449,3 +449,48 @@ export async function synthesizeMemo(companyName, evidenceBundle) {
   const evidenceText = buildEvidenceBlock(evidenceBundle);
   return runJSONPrompt(SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 2000);
 }
+
+// A separate call, not more fields bolted onto SYSTEM_PROMPT above. The
+// core memo already asks for ~23 fields in one 2000-token completion, and
+// this session hit Groq's free-tier token ceiling twice already (a
+// deprecated-model failure and a truncation bug were both downstream of
+// it). Doubling the schema in the same call risks the same ceiling again,
+// and an all-or-nothing failure would lose the whole memo, not just the
+// deep-dive extras. Callers should run this alongside synthesizeMemo (same
+// digest, no data dependency between them) and treat a failure here as
+// non-fatal — the core memo must still render on its own.
+const EXTRAS_SYSTEM_PROMPT = `You are a senior VC research analyst at Pegasus Tech Ventures, writing the deep-dive appendix sections of an investment memo whose core (valuation, funding, competitors, etc.) has already been written separately. You'll receive the same evidence bundle used for that core memo. Produce ONLY the deep-dive sections below — same hard rule as always: every claim must be traceable to a specific evidence snippet, or the field/entry is omitted entirely. Never invent a plausible-sounding fact to fill a section. It is normal and expected for most of these to come back thin or empty for an early-stage/private company — an honest empty array or null is correct, not a failure.
+
+- "executiveSummary": 3-5 short bullet strings — the single most important takeaways from the evidence, the "read this if you read nothing else" list.
+- "investmentRecommendation": { "verdict": "Pursue"|"Watch"|"Pass", "rationale": string (1-2 sentences, evidence-cited) } — a real IC memo states an actual call, not just a vibe. Base this on the strength of the evidence, not on generic optimism.
+- "dealSnapshot": { "founded": string|null, "hq": string|null, "employees": string|null, "website": string|null } — quick facts, each null unless evidence directly states it.
+- "unitEconomics": { "grossMargin": string|null, "burnRate": string|null, "runway": string|null, "cac": string|null, "ltv": string|null } — each null unless evidence actually supports it. Expect most of these to be null for private companies — that's correct, don't guess.
+- "marketTrends": { "tailwinds": string[], "headwinds": string[] } — market-level dynamics (not company-specific), from market/TAM evidence. Empty arrays if evidence doesn't support any.
+- "competitiveMoat": [ { "factor": string (e.g. "Network effects", "Proprietary IP", "Data moat", "Switching costs", "Brand"), "strength": "high"|"medium"|"low", "note": string (evidence-cited) } ] — only include a factor if evidence supports a real judgment on it.
+- "swot": { "strengths": string[], "weaknesses": string[], "opportunities": string[], "threats": string[] } — each bullet must tie to something in the evidence, not generic boilerplate.
+- "exitLandscape": [ { "company": string, "outcome": string (e.g. "IPO 2021", "Acquired by X, 2022"), "note": string } ] — comparable exits (IPOs/acquisitions) in the same space, mined from competitor/comps evidence. Empty array if nothing surfaced — never invent a plausible-sounding exit.
+- "followOnOutlook": string|null — a read on next-round timing/rationale, ONLY if burn-rate/growth evidence actually supports one. Null otherwise.
+
+Respond with ONLY a single JSON object matching exactly this shape:
+{
+  "executiveSummary": string[],
+  "investmentRecommendation": { "verdict": "Pursue"|"Watch"|"Pass", "rationale": string } | null,
+  "dealSnapshot": { "founded": string|null, "hq": string|null, "employees": string|null, "website": string|null },
+  "unitEconomics": { "grossMargin": string|null, "burnRate": string|null, "runway": string|null, "cac": string|null, "ltv": string|null },
+  "marketTrends": { "tailwinds": string[], "headwinds": string[] },
+  "competitiveMoat": [ { "factor": string, "strength": "high"|"medium"|"low", "note": string } ],
+  "swot": { "strengths": string[], "weaknesses": string[], "opportunities": string[], "threats": string[] },
+  "exitLandscape": [ { "company": string, "outcome": string, "note": string } ],
+  "followOnOutlook": string | null
+}`;
+
+/**
+ * Deep-dive appendix sections over the same evidence digest used for the
+ * core memo. Non-fatal by design: callers should catch a failure here and
+ * still render the core memo, since none of this is required for the memo
+ * to be useful.
+ */
+export async function synthesizeMemoExtras(companyName, evidenceBundle) {
+  const evidenceText = buildEvidenceBlock(evidenceBundle);
+  return runJSONPrompt(EXTRAS_SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 1800);
+}

@@ -1,5 +1,5 @@
 import { tavilySearchMany, hasTavilyKeyConfigured, getTavilyUsage } from './tavilyClient.js';
-import { synthesizeMemo, planFollowUps, identifyGaps } from './groqClient.js';
+import { synthesizeMemo, synthesizeMemoExtras, planFollowUps, identifyGaps } from './groqClient.js';
 import { summarizeEvidenceGroups } from './evidenceSummarizer.js';
 import { getCached, setCached } from './researchCache.js';
 
@@ -90,7 +90,11 @@ function toTrace(evidenceBundle) {
  *      evidence-block budget can hold facts from far more sources than raw
  *      snippets ever could
  *   7. Final evidence-grounded synthesis (Groq) over the compressed digest,
- *      citing or abstaining
+ *      citing or abstaining — runs in parallel with a second, non-fatal
+ *      call producing deep-dive appendix sections (executive summary,
+ *      SWOT, competitive moat, unit economics, exit landscape, etc.); a
+ *      failure in the second call never fails the run, it just means those
+ *      sections come back empty
  *
  * Returns { memo, researchTrace, cached, fetchedAt, stale? }.
  * Throws an error with `.code` set to 'no_evidence' | 'search_failed' |
@@ -194,17 +198,32 @@ export async function runResearch(companyName, { forceRefresh = false, depth = '
   // raw snippets alone would allow.
   const digest = await summarizeEvidenceGroups(companyName, allEvidence);
 
-  let memo;
-  try {
-    memo = await synthesizeMemo(companyName, digest);
-  } catch (cause) {
-    const err = new Error(`Synthesis failed: ${cause.message}`);
+  // The core memo and the deep-dive extras both only need `digest` — no
+  // data dependency between them — so they run in parallel rather than
+  // stacking their latency. The core memo is required (its failure fails
+  // the whole run); the extras call is non-fatal (its failure just means
+  // the deep-dive appendix sections come back empty, per allSettled below).
+  const [memoResult, extrasResult] = await Promise.allSettled([
+    synthesizeMemo(companyName, digest),
+    synthesizeMemoExtras(companyName, digest),
+  ]);
+
+  if (memoResult.status === 'rejected') {
+    const err = new Error(`Synthesis failed: ${memoResult.reason.message}`);
     err.code = 'synthesis_failed';
     err.researchTrace = researchTrace;
     throw err;
   }
+  const memo = memoResult.value;
 
-  const finalMemo = { ...memo, isGenerated: false, source: 'groq+tavily' };
+  let extras = {};
+  if (extrasResult.status === 'fulfilled') {
+    extras = extrasResult.value;
+  } else {
+    console.error(`[research] synthesizeMemoExtras failed for "${companyName}" (continuing without deep-dive sections):`, extrasResult.reason.message);
+  }
+
+  const finalMemo = { ...memo, ...extras, isGenerated: false, source: 'groq+tavily' };
   const entry = setCached(companyName, depth, { memo: finalMemo, researchTrace });
 
   return { ...entry, cached: false };
