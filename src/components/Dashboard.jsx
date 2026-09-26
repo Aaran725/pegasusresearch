@@ -10,6 +10,7 @@ import CompsTable from './CompsTable';
 import NewsTimeline from './NewsTimeline';
 import RiskFlags from './RiskFlags';
 import FoundingTeam from './FoundingTeam';
+import DueDiligenceNotes from './DueDiligenceNotes';
 
 export default function Dashboard({ data, source, onRefresh, onSaveField, inPortfolio, onToggleWatchlist }) {
   const isLive = source === 'groq+tavily';
@@ -63,6 +64,8 @@ export default function Dashboard({ data, source, onRefresh, onSaveField, inPort
           <FoundingTeam team={data.team} />
         </div>
       )}
+
+      {isLive && data.depth === 'deep' && <DueDiligenceNotes data={data} />}
 
       <div className="text-[10px] text-text-dim text-center py-1">
         {isLive

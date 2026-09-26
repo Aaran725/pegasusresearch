@@ -65,6 +65,11 @@ exists because it's a mistake a fixed batch makes that a human researcher
    recent news, and a Crunchbase/PitchBook-targeted query (5 topics in
    Standard mode; Deep mode adds business model/pricing, tech/IP,
    team/hiring, customers/partnerships, and product roadmap — 10 total).
+   These 5 Deep-only topics feed a dedicated "Due Diligence Notes" panel
+   (`businessModel`/`techDifferentiation`/`teamScale`/`customers`/
+   `productRoadmap` on the memo, shown only for Deep-mode results) — they
+   used to be searched but had no output field to land in, so they never
+   actually changed what a Deep-mode search showed.
 2. **Follow-up depth pass** (budget-permitting):
    - A cheap Groq call reads the base evidence and names real competitors
      actually mentioned in it (never invented — up to 3 in Standard, up
@@ -80,13 +85,16 @@ exists because it's a mistake a fixed batch makes that a human researcher
 3. **Adaptive gap-filling** (budget-permitting, 1 round in Standard, up to
    3 in Deep): a cheap Groq call reviews everything gathered so far and
    checks each of valuation / funding / market size / revenue /
-   competitors for whether there's actually clear supporting evidence yet.
-   For anything still thin, it writes one targeted follow-up query — not
-   a repeat of the generic round-1 query, but a different angle (a
-   specific source type, a specific event, alternate phrasing). Deep mode
-   re-assesses after each round using everything gathered so far
-   (including prior gap-fill rounds), stopping early the moment a round
-   reports nothing left to fill.
+   competitors for whether there's actually clear supporting evidence yet
+   (Deep mode's rounds also check the 5 due-diligence fields above, so its
+   extra rounds have real gaps of their own to find instead of re-checking
+   the same fields round 1 already resolved). For anything still thin, it
+   writes one targeted follow-up query — not a repeat of the generic
+   round-1 query, but a different angle (a specific source type, a
+   specific event, alternate phrasing). Deep mode re-assesses after each
+   round using everything gathered so far (including prior gap-fill
+   rounds), stopping early the moment a round reports nothing left to
+   fill.
 4. **Map-reduce evidence compression** (`server/services/evidenceSummarizer.js`):
    Groq's free tier has a real, hard per-model token ceiling (as low as
    ~8,000 tokens/minute on some models — hit in production), independent

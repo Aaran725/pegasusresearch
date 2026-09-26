@@ -172,7 +172,7 @@ export async function runResearch(companyName, { forceRefresh = false, depth = '
     const { remaining: beforeRound } = getTavilyUsage();
     if (beforeRound < 1) break;
 
-    const gaps = await identifyGaps(companyName, [...evidenceSoFar, ...gapEvidence]);
+    const gaps = await identifyGaps(companyName, [...evidenceSoFar, ...gapEvidence], depth);
     if (gaps.length === 0) break; // evidence already covers everything reasonably well
 
     const affordableGaps = gaps.slice(0, Math.min(gaps.length, preset.maxGapQueriesPerRound, beforeRound));

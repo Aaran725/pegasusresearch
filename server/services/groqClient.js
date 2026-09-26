@@ -136,6 +136,14 @@ export function buildEvidenceBlock(evidenceBundle) {
   let block = '';
   let n = 1;
   for (const group of groups) {
+    // The per-group floor above (max(400, …)) can push the sum of all
+    // per-group shares past TOTAL_EVIDENCE_CHAR_BUDGET once a bundle has
+    // many groups (Deep mode: 30+) — that floor exists so a handful of
+    // groups never gets starved to near-zero, but it's not a substitute for
+    // an actual total cap. Stop appending once the real budget is spent,
+    // regardless of how many groups are left.
+    if (block.length >= TOTAL_EVIDENCE_CHAR_BUDGET) break;
+
     const tag = group.label ? `[${group.label}] ` : '';
     let used = 0;
 
@@ -324,7 +332,19 @@ export async function planFollowUps(companyName, baseEvidenceBundle, maxCompetit
   }
 }
 
-const GAP_SYSTEM_PROMPT = `You are a research assistant reviewing evidence gathered so far about a company, checking for gaps before a final report gets written. For EACH of these fields — valuation, funding_amount, funding_rounds, market_size, revenue, competitors — check whether the evidence already contains clear supporting information. For any field that does NOT, write one specific, creative follow-up search query likely to find it: think like a researcher who hit a dead end and is trying a different angle (a specific source type like Crunchbase/TechCrunch/company blog, a specific recent time period, alternate phrasing, a specific event like "Series C announcement") — not a repeat of an obvious generic query. Respond with ONLY JSON: { "gaps": [ { "field": "valuation"|"funding_amount"|"funding_rounds"|"market_size"|"revenue"|"competitors", "query": string } ] }, at most 4 entries, ordered by how important the gap is. If the evidence already covers everything reasonably well, return an empty array — don't manufacture gaps to seem thorough.`;
+const CORE_GAP_FIELDS = ['valuation', 'funding_amount', 'funding_rounds', 'market_size', 'revenue', 'competitors'];
+// Deep-only: these map 1:1 to the extra base clusters deep mode searches
+// (business model, tech/IP, team/hiring, customers, product roadmap — see
+// buildBaseQueryPlan in researchOrchestrator.js). Without this, deep mode's
+// extra gap-fill rounds (2-3) just re-check the same 6 core fields round 1
+// already resolved, so they almost always come back empty and the budget
+// deep mode pays for those rounds goes unspent.
+const DEEP_GAP_FIELDS = ['business_model', 'tech_ip', 'team', 'customers', 'product_roadmap'];
+
+function buildGapSystemPrompt(fields) {
+  const fieldList = fields.join(', ');
+  return `You are a research assistant reviewing evidence gathered so far about a company, checking for gaps before a final report gets written. For EACH of these fields — ${fieldList} — check whether the evidence already contains clear supporting information. For any field that does NOT, write one specific, creative follow-up search query likely to find it: think like a researcher who hit a dead end and is trying a different angle (a specific source type like Crunchbase/TechCrunch/company blog, a specific recent time period, alternate phrasing, a specific event like "Series C announcement") — not a repeat of an obvious generic query. Respond with ONLY JSON: { "gaps": [ { "field": string (one of: ${fieldList}), "query": string } ] }, at most 4 entries, ordered by how important the gap is. If the evidence already covers everything reasonably well, return an empty array — don't manufacture gaps to seem thorough.`;
+}
 
 /**
  * Reviews evidence gathered so far, identifies which fields still lack
@@ -332,12 +352,18 @@ const GAP_SYSTEM_PROMPT = `You are a research assistant reviewing evidence gathe
  * "notice what's missing and go dig for it specifically" step a fixed
  * one-shot query batch can't do on its own. Returns [] on any failure;
  * this is a quality enhancement, not required for the memo to succeed.
+ *
+ * `depth` controls which fields get checked: standard only ever checks the
+ * 6 core fields; deep also checks the 5 fields unique to deep mode's extra
+ * base clusters, so its extra rounds have real, distinct gaps to find
+ * instead of re-checking what round 1 already resolved.
  */
-export async function identifyGaps(companyName, evidenceSoFar) {
+export async function identifyGaps(companyName, evidenceSoFar, depth = 'standard') {
+  const fields = depth === 'deep' ? [...CORE_GAP_FIELDS, ...DEEP_GAP_FIELDS] : CORE_GAP_FIELDS;
   try {
     const evidenceText = buildEvidenceBlock(evidenceSoFar);
     const result = await runJSONPrompt(
-      GAP_SYSTEM_PROMPT,
+      buildGapSystemPrompt(fields),
       `Company: ${companyName}\n\nEvidence gathered so far:\n${evidenceText}`,
       500
     );
@@ -364,6 +390,7 @@ Hard rules:
 - "riskFlags": from evidence tagged [RISK SIGNALS], list concrete negative signals (lawsuits, layoffs, regulatory issues, executive departures under a cloud, controversies). Rate each "severity" as "high"/"medium"/"low". If the risk-signal search evidence shows nothing negative, return an empty array — do NOT invent a risk to seem thorough, but you MAY note in aiVerdict that a risk search was run and came back clean.
 - "team": from evidence tagged [FOUNDER BACKGROUND], list founders/executives with a one-line background each (prior companies, education) ONLY if evidence supports it. Empty array if nothing found.
 - Write "aiVerdict" (3-5 sentences) evaluating the company against a deep-tech / physical-AI / global-expansion investment thesis, citing specific evidence, and explicitly noting where data is thin or where risk flags matter.
+- "businessModel", "techDifferentiation", "teamScale", "customers", "productRoadmap": these five fields exist ONLY to capture evidence tagged [BASE: BUSINESS MODEL], [BASE: TECH/IP], [BASE: TEAM/HIRING], [BASE: CUSTOMERS], and [BASE: PRODUCT] respectively (present only on deep-research runs — if none of these tags appear anywhere in the evidence, leave all five null). Each is one or two sentences of concrete, evidence-backed substance (pricing model, patents/proprietary tech, headcount trend, named customers/partners, an announced roadmap item) — null if that specific tag's evidence is too thin to say anything concrete. Do not fill these from other tags' evidence, and do not use them as a dumping ground for facts that belong in another field above.
 
 Respond with ONLY a single JSON object, no markdown fences, matching exactly this shape:
 
@@ -395,7 +422,12 @@ Respond with ONLY a single JSON object, no markdown fences, matching exactly thi
   "riskFlags": [ { "severity": "high"|"medium"|"low", "description": string, "url": string } ],
   "team": [ { "name": string, "role": string, "background": string, "url": string } ],
   "sources": [ { "url": string, "title": string, "usedFor": string } ],
-  "confidence": { "valuation": "verified"|"inferred"|"unavailable", "totalRaised": "...", "tam": "...", "competitors": "...", "marketSizing": "..." }
+  "confidence": { "valuation": "verified"|"inferred"|"unavailable", "totalRaised": "...", "tam": "...", "competitors": "...", "marketSizing": "..." },
+  "businessModel": string | null,
+  "techDifferentiation": string | null,
+  "teamScale": string | null,
+  "customers": string | null,
+  "productRoadmap": string | null
 }`;
 
 /**

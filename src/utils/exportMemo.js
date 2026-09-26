@@ -186,6 +186,22 @@ export function downloadMemoPdf(data, { source } = {}) {
     y = doc.lastAutoTable.finalY + 20;
   }
 
+  // --- Due diligence notes (deep-research-only fields) ---
+  const ddFields = [
+    ['Business Model & Pricing', data.businessModel],
+    ['Tech / IP', data.techDifferentiation],
+    ['Team & Hiring', data.teamScale],
+    ['Customers & Partnerships', data.customers],
+    ['Product Roadmap', data.productRoadmap],
+  ].filter(([, value]) => value);
+  if (ddFields.length > 0) {
+    y = ensureRoom(doc, y, 100);
+    y = drawSectionTitle(doc, y, 'Due Diligence Notes (Deep Research)');
+    for (const [label, value] of ddFields) {
+      y = drawParagraph(doc, y, `${label}: ${value}`);
+    }
+  }
+
   // --- Sources ---
   if (data.sources && data.sources.length > 0) {
     y = ensureRoom(doc, y, 100);
