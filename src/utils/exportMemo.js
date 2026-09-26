@@ -186,6 +186,25 @@ export function downloadMemoPdf(data, { source } = {}) {
     y = doc.lastAutoTable.finalY + 20;
   }
 
+  // --- Pegasus Fit scorecard ---
+  const fitLabels = {
+    team: 'Team & Market Vision',
+    techInnovation: 'Technology Innovation',
+    financials: 'Financial Trajectory',
+    vcaasFit: 'VCaaS / Global-Expansion Fit',
+  };
+  const fitEntries = data.pegasusFit
+    ? Object.entries(fitLabels).filter(([key]) => data.pegasusFit[key])
+    : [];
+  if (fitEntries.length > 0) {
+    y = ensureRoom(doc, y, 100);
+    y = drawSectionTitle(doc, y, 'Pegasus Fit');
+    for (const [key, label] of fitEntries) {
+      const { score, note } = data.pegasusFit[key];
+      y = drawParagraph(doc, y, `${label}: ${score}/100${note ? ` — ${note}` : ''}`);
+    }
+  }
+
   // --- Due diligence notes (deep-research-only fields) ---
   const ddFields = [
     ['Business Model & Pricing', data.businessModel],

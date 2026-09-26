@@ -1,6 +1,27 @@
 import EditableField from './EditableField';
 
-function MetricCard({ label, value, trend, sub, isText, field, editedFields, onSaveField }) {
+// Pegasus Tech Ventures' actual public check-size range is $100K-$10M
+// ($0.0001B-$0.01B), sweet spot ~$1M. fundingHistory's `raised` values are
+// already extracted in $B, so this is a pure derived signal — no extra
+// query cost, and it's specific to how this firm actually writes checks
+// rather than generic VC-dashboard filler.
+const PEGASUS_MIN_CHECK_B = 0.0001;
+const PEGASUS_MAX_CHECK_B = 0.01;
+
+function checkSizeFitBadge(fundingHistory) {
+  if (!fundingHistory || fundingHistory.length === 0) return null;
+  const latest = fundingHistory[fundingHistory.length - 1];
+  if (typeof latest.raised !== 'number') return null;
+  if (latest.raised >= PEGASUS_MIN_CHECK_B && latest.raised <= PEGASUS_MAX_CHECK_B) {
+    return { text: `Latest round in Pegasus's $100K–$10M range`, positive: true };
+  }
+  if (latest.raised > PEGASUS_MAX_CHECK_B) {
+    return { text: `Latest round above Pegasus's typical $10M check ceiling`, positive: false };
+  }
+  return null;
+}
+
+function MetricCard({ label, value, trend, sub, badge, isText, field, editedFields, onSaveField }) {
   const hasValue = value !== null && value !== undefined && value !== '';
   const trendIsNegative = typeof trend === 'string' && trend.trim().startsWith('-');
   const editable = field && onSaveField;
@@ -46,6 +67,13 @@ function MetricCard({ label, value, trend, sub, isText, field, editedFields, onS
         )}
         {sub && <span className="text-[11px] text-text-faint truncate">{sub}</span>}
       </div>
+      {badge && (
+        <span
+          className={`text-[10px] leading-snug ${badge.positive ? 'text-positive' : 'text-warning'}`}
+        >
+          {badge.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -65,6 +93,7 @@ export default function MetricsBar({ data, editable, onSaveField }) {
       trend: data.raisedTrend,
       sub: 'since inception',
       field: 'totalRaised',
+      badge: checkSizeFitBadge(data.fundingHistory),
     },
     {
       label: 'Lead Investors',

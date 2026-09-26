@@ -11,6 +11,7 @@ import NewsTimeline from './NewsTimeline';
 import RiskFlags from './RiskFlags';
 import FoundingTeam from './FoundingTeam';
 import DueDiligenceNotes from './DueDiligenceNotes';
+import PegasusFitCard from './PegasusFitCard';
 
 export default function Dashboard({ data, source, onRefresh, onSaveField, inPortfolio, onToggleWatchlist }) {
   const isLive = source === 'groq+tavily';
@@ -43,6 +44,8 @@ export default function Dashboard({ data, source, onRefresh, onSaveField, inPort
           </button>
         </div>
       </div>
+
+      {isLive && <PegasusFitCard fit={data.pegasusFit} />}
 
       <MetricsBar data={data} editable={isLive} onSaveField={onSaveField} />
       <AIVerdict data={data} source={source} onSaveField={isLive ? onSaveField : null} />

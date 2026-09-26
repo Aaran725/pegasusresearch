@@ -389,7 +389,12 @@ Hard rules:
 - "newsTimeline": pull dated events (funding, product launches, executive hires/departures, layoffs, lawsuits, regulatory action) from evidence tagged [Q: ...news...] or similar. Most recent first. Only include events with a real evidence-backed date/headline. Empty array if nothing found.
 - "riskFlags": from evidence tagged [RISK SIGNALS], list concrete negative signals (lawsuits, layoffs, regulatory issues, executive departures under a cloud, controversies). Rate each "severity" as "high"/"medium"/"low". If the risk-signal search evidence shows nothing negative, return an empty array — do NOT invent a risk to seem thorough, but you MAY note in aiVerdict that a risk search was run and came back clean.
 - "team": from evidence tagged [FOUNDER BACKGROUND], list founders/executives with a one-line background each (prior companies, education) ONLY if evidence supports it. Empty array if nothing found.
-- Write "aiVerdict" (3-5 sentences) evaluating the company against a deep-tech / physical-AI / global-expansion investment thesis, citing specific evidence, and explicitly noting where data is thin or where risk flags matter.
+- Write "aiVerdict" (3-5 sentences) evaluating the company against Pegasus Tech Ventures' actual, publicly-stated investment thesis — NOT a generic VC checklist: Pegasus explicitly rejects thematic/checklist investing and centers evaluation on (1) founding-team strength and the clarity of their market vision, (2) management experience, (3) technology innovation, and (4) financial projections, plus whether the company could benefit from Pegasus's Venture-Capital-as-a-Service model (35+ multinational corporate partners for business development, manufacturing, distribution, and global expansion). Cite specific evidence and explicitly note where data is thin or where risk flags matter.
+- "pegasusFit": a structured scorecard mirroring the four criteria above, each with a 0-100 "score" and a one-sentence evidence-cited "note" — never invent a score with no supporting evidence; omit that sub-object entirely (leave it out of the JSON key, do not include a null placeholder) if there's truly nothing to base it on:
+  - "team": founding-team strength / clarity of market vision, from [FOUNDER BACKGROUND] and general evidence.
+  - "techInnovation": from [BASE: TECH/IP] evidence if present, else general evidence of technical differentiation.
+  - "financials": from funding/valuation/revenue evidence — is there a coherent financial trajectory.
+  - "vcaasFit": specifically whether this company's stage/geography/sector shows it could use a network of corporate partners for manufacturing, distribution, or international expansion — this is Pegasus's actual differentiator, treat it as a real evaluation axis, not filler.
 - "businessModel", "techDifferentiation", "teamScale", "customers", "productRoadmap": these five fields exist ONLY to capture evidence tagged [BASE: BUSINESS MODEL], [BASE: TECH/IP], [BASE: TEAM/HIRING], [BASE: CUSTOMERS], and [BASE: PRODUCT] respectively (present only on deep-research runs — if none of these tags appear anywhere in the evidence, leave all five null). Each is one or two sentences of concrete, evidence-backed substance (pricing model, patents/proprietary tech, headcount trend, named customers/partners, an announced roadmap item) — null if that specific tag's evidence is too thin to say anything concrete. Do not fill these from other tags' evidence, and do not use them as a dumping ground for facts that belong in another field above.
 
 Respond with ONLY a single JSON object, no markdown fences, matching exactly this shape:
@@ -423,6 +428,12 @@ Respond with ONLY a single JSON object, no markdown fences, matching exactly thi
   "team": [ { "name": string, "role": string, "background": string, "url": string } ],
   "sources": [ { "url": string, "title": string, "usedFor": string } ],
   "confidence": { "valuation": "verified"|"inferred"|"unavailable", "totalRaised": "...", "tam": "...", "competitors": "...", "marketSizing": "..." },
+  "pegasusFit": {
+    "team": { "score": number (0-100), "note": string } | omit key,
+    "techInnovation": { "score": number (0-100), "note": string } | omit key,
+    "financials": { "score": number (0-100), "note": string } | omit key,
+    "vcaasFit": { "score": number (0-100), "note": string } | omit key
+  },
   "businessModel": string | null,
   "techDifferentiation": string | null,
   "teamScale": string | null,

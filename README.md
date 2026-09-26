@@ -5,6 +5,14 @@ first-pass investment memo — valuation, funding history, market sizing,
 competitor landscape, and comps — grounded in live web search, with every
 number cited back to a source.
 
+Scored specifically against **Pegasus Tech Ventures'** actual, publicly
+stated investment criteria (not a generic VC checklist): founding-team
+strength and market vision, management experience, technology innovation,
+and financial projections — plus fit for the firm's real differentiator,
+VCaaS (a network of 35+ multinational corporate partners for business
+development, manufacturing, distribution, and global expansion). See the
+"Pegasus Fit" scorecard below.
+
 ## Stack
 
 - **Frontend:** React 19 + Vite, Tailwind CSS v4, Recharts, Lucide React
@@ -113,7 +121,14 @@ exists because it's a mistake a fixed batch makes that a human researcher
    compressed digest) — cites every numeric claim to a specific source
    snippet, or returns `null`/omits the entry rather than guessing, and
    self-rates confidence per field (`verified` / `inferred` /
-   `unavailable`).
+   `unavailable`). The same call also produces a **Pegasus Fit** scorecard
+   — team/market-vision, technology innovation, financial trajectory, and
+   VCaaS fit, each 0-100 with an evidence-cited note, or omitted entirely
+   rather than invented if evidence doesn't support a score — plus two
+   cheap derived badges computed client-side with no extra query cost:
+   whether the company's sector matches Pegasus's actual public focus
+   areas, and whether its latest funding round falls inside Pegasus's real
+   $100K-$10M check-size range.
 6. The frontend renders sources, confidence badges, an expandable research
    trace, a risk-signals panel (including an explicit "searched and found
    nothing" state — that's a real, meaningful result, not an omission),
