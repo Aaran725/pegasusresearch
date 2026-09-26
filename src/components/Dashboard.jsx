@@ -24,6 +24,7 @@ export default function Dashboard({ data, source, onRefresh, onSaveField, inPort
               fetchedAt={data.fetchedAt}
               cached={data.cached}
               stale={data.stale}
+              depth={data.depth}
               onRefresh={onRefresh}
             />
           )}

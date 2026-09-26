@@ -15,14 +15,18 @@ const CACHE_DIR = path.join(__dirname, '..', 'data-cache', 'research');
 // manual refresh instead of pretending the data is fresh.
 export const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // 24h
 
-function keyToPath(company) {
+// Standard and Deep results for the same company are different data
+// products (materially different completeness/breadth) — the cache key
+// includes depth so switching modes never silently serves the other mode's
+// result.
+function keyToPath(company, depth) {
   const safe = company.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return path.join(CACHE_DIR, `${safe || 'unknown'}.json`);
+  return path.join(CACHE_DIR, `${safe || 'unknown'}--${depth}.json`);
 }
 
-export function getCached(company) {
+export function getCached(company, depth) {
   try {
-    const raw = fs.readFileSync(keyToPath(company), 'utf-8');
+    const raw = fs.readFileSync(keyToPath(company, depth), 'utf-8');
     const entry = JSON.parse(raw);
     const ageMs = Date.now() - entry.fetchedAt;
     return { ...entry, stale: ageMs > STALE_AFTER_MS };
@@ -31,10 +35,10 @@ export function getCached(company) {
   }
 }
 
-export function setCached(company, { memo, researchTrace }) {
+export function setCached(company, depth, { memo, researchTrace }) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   const entry = { memo, researchTrace, fetchedAt: Date.now() };
-  fs.writeFileSync(keyToPath(company), JSON.stringify(entry), 'utf-8');
+  fs.writeFileSync(keyToPath(company, depth), JSON.stringify(entry), 'utf-8');
   return entry;
 }
 

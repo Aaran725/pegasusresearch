@@ -24,6 +24,7 @@ const NOTICE_BY_CODE = {
 export default function App() {
   const [activeNav, setActiveNav] = useState('search');
   const [query, setQuery] = useState('');
+  const [depth, setDepth] = useState('standard');
   const [data, setData] = useState(null);
   const [source, setSource] = useState('mock');
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,7 @@ export default function App() {
       setNotice(null);
 
       try {
-        const memo = await fetchStartupMemo(trimmed, { forceRefresh });
+        const memo = await fetchStartupMemo(trimmed, { forceRefresh, depth });
         setData(memo);
         setSource('groq+tavily');
         setLoading(false);
@@ -68,7 +69,7 @@ export default function App() {
       setLoading(false);
       refreshQuota();
     },
-    [refreshQuota]
+    [refreshQuota, depth]
   );
 
   const handlePick = (name) => {
@@ -128,11 +129,13 @@ export default function App() {
                 onQueryChange={setQuery}
                 onSubmit={() => runSearch(query)}
                 loading={loading}
+                depth={depth}
+                onDepthChange={setDepth}
                 statusLabel={
                   loading
-                    ? 'Analyzing…'
+                    ? `Analyzing (${depth})…`
                     : data
-                    ? `${source === 'groq+tavily' ? 'Live research' : 'Demo data'} · ${data.stage}`
+                    ? `${source === 'groq+tavily' ? `Live · ${data.depth ?? 'standard'}` : 'Demo data'} · ${data.stage}`
                     : 'Idle · awaiting search'
                 }
                 sectorLabel={data?.sector}
@@ -152,8 +155,10 @@ export default function App() {
                   <Loader2 size={26} className="text-accent-soft animate-spin" />
                   <p className="text-[13px] text-text-muted text-center max-w-xs">
                     Searching the live web and cross-checking sources on{' '}
-                    <span className="text-text font-medium">{query}</span>… this runs several
-                    searches, so it can take up to a minute.
+                    <span className="text-text font-medium">{query}</span>
+                    {depth === 'deep'
+                      ? ' — Deep mode runs many more searches and adaptive follow-up rounds, so this can take a couple of minutes.'
+                      : '… this runs several searches, so it can take up to a minute.'}
                   </p>
                 </div>
               )}

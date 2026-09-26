@@ -8,6 +8,12 @@
  * Fetches a live, web-grounded investment memo for a company name.
  * Pass { forceRefresh: true } to bypass the server's 24h cache and re-run
  * the full search + synthesis pipeline (spends Tavily quota).
+ * Pass { depth: 'deep' } for the deeper research pipeline (~2.5x more
+ * Tavily credits — 10 base topics instead of 5, up to 6 competitors
+ * deep-dived with 2 queries each instead of 3 with 1, and up to 3 adaptive
+ * gap-filling rounds instead of 1). Defaults to 'standard'. Standard and
+ * Deep results for the same company are cached separately server-side, so
+ * switching modes always gets that mode's own result, never the other's.
  *
  * Throws an Error with `.code` set to one of:
  *   'no_evidence'      — search ran fine, but found nothing on the open web
@@ -19,13 +25,13 @@
  *
  * Callers should catch and fall back to the mock data generator.
  */
-export async function fetchStartupMemo(companyName, { forceRefresh = false } = {}) {
+export async function fetchStartupMemo(companyName, { forceRefresh = false, depth = 'standard' } = {}) {
   let res;
   try {
     res = await fetch('/api/research', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company: companyName, forceRefresh }),
+      body: JSON.stringify({ company: companyName, forceRefresh, depth }),
     });
   } catch (cause) {
     const err = new Error(`Could not reach the research backend: ${cause.message}`);
@@ -48,6 +54,7 @@ export async function fetchStartupMemo(companyName, { forceRefresh = false } = {
     cached: Boolean(body.cached),
     fetchedAt: body.fetchedAt ?? null,
     stale: Boolean(body.stale),
+    depth: body.depth ?? depth,
   };
 }
 

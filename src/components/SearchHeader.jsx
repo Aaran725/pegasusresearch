@@ -10,6 +10,8 @@ export default function SearchHeader({
   sectorLabel,
   hasResult,
   onExport,
+  depth,
+  onDepthChange,
 }) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
@@ -58,6 +60,27 @@ export default function SearchHeader({
           {loading ? 'Analyzing…' : 'Analyze'}
         </button>
       </form>
+
+      <div
+        className="flex items-center bg-white/5 border border-border rounded-md p-0.5 shrink-0"
+        title="Standard: ~13 Tavily credits/search. Deep: ~36 credits/search — 2x more research topics, deeper competitor coverage, and up to 3 rounds of adaptive gap-filling."
+      >
+        {['standard', 'deep'].map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => onDepthChange(mode)}
+            disabled={loading}
+            className={`text-[11px] font-semibold capitalize rounded px-2.5 py-1 transition-colors disabled:cursor-not-allowed ${
+              depth === mode
+                ? 'bg-accent-strong text-white'
+                : 'text-text-muted hover:text-text'
+            }`}
+          >
+            {mode}
+          </button>
+        ))}
+      </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
         <span className="flex items-center gap-1.5 text-[11px] text-text-muted bg-white/5 border border-border rounded-md px-2.5 py-1.5 whitespace-nowrap">

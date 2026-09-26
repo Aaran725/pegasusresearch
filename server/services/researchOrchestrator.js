@@ -1,19 +1,59 @@
 import { tavilySearchMany, hasTavilyKeyConfigured, getTavilyUsage } from './tavilyClient.js';
 import { synthesizeMemo, planFollowUps, identifyGaps } from './groqClient.js';
+import { summarizeEvidenceGroups } from './evidenceSummarizer.js';
 import { getCached, setCached } from './researchCache.js';
 
-const BASE_QUERY_COST = 5; // one query per entry below
-const MAX_COMPETITOR_FOLLOWUPS = 3;
+// Standard keeps today's numbers. Deep trades ~2.5x more Tavily credits for
+// ~2x topic breadth, ~2x competitor depth, and up to 3 gap-filling rounds
+// instead of 1 — see the "8x research" plan for the full cost/benefit
+// table. Map-reduce evidence compression (evidenceSummarizer.js) applies to
+// BOTH modes: it's a quality fix (more facts survive into the final prompt
+// within whatever budget is in play), not an extra Tavily cost.
+const DEPTH_PRESETS = {
+  standard: {
+    baseQueryCost: 5,
+    maxCompetitorFollowups: 3,
+    queriesPerCompetitor: 1,
+    maxGapRounds: 1,
+    maxGapQueriesPerRound: 4,
+  },
+  deep: {
+    baseQueryCost: 10,
+    maxCompetitorFollowups: 6,
+    queriesPerCompetitor: 2,
+    maxGapRounds: 3,
+    maxGapQueriesPerRound: 4,
+  },
+};
 
-function buildBaseQueryPlan(company) {
+function buildBaseQueryPlan(company, depth) {
   const label = 'BASE SEARCH';
-  return [
+  const queries = [
     { query: `${company} startup funding round valuation investors`, label },
     { query: `${company} competitors alternatives market`, label },
     { query: `${company} revenue ARR total addressable market size`, label },
     { query: `${company} news 2025`, label },
     { query: `${company} crunchbase OR pitchbook profile`, label },
   ];
+  if (depth === 'deep') {
+    queries.push(
+      { query: `${company} pricing business model go-to-market monetization`, label: 'BASE: BUSINESS MODEL' },
+      { query: `${company} technology stack patents proprietary IP`, label: 'BASE: TECH/IP' },
+      { query: `${company} employees headcount engineering team hiring`, label: 'BASE: TEAM/HIRING' },
+      { query: `${company} customers case study enterprise partnership integration`, label: 'BASE: CUSTOMERS' },
+      { query: `${company} product launch roadmap release 2025 2026`, label: 'BASE: PRODUCT' }
+    );
+  }
+  return queries;
+}
+
+function competitorQueries(name, queriesPerCompetitor) {
+  const label = `COMPETITOR: ${name}`;
+  const queries = [{ query: `${name} funding valuation revenue`, label }];
+  if (queriesPerCompetitor >= 2) {
+    queries.push({ query: `${name} product features pricing market position vs competitors`, label });
+  }
+  return queries;
 }
 
 function countTotalResults(evidenceBundle) {
@@ -30,29 +70,38 @@ function toTrace(evidenceBundle) {
 }
 
 /**
- * Runs the full research pipeline for a company name:
- *   1. Serve from cache if we have a recent-enough entry (unless forceRefresh)
- *   2. Base multi-query live web search (Tavily)
- *   3. A cheap Groq call names up to 3 real (evidence-backed) competitors
- *   4. Follow-up searches: one per named competitor, plus a dedicated
- *      founder-background query and a dedicated risk/red-flag query —
- *      budget-permitting against the monthly Tavily quota
- *   5. ADAPTIVE gap-filling round: a cheap Groq call reviews everything
- *      gathered so far, flags fields still lacking clear support
- *      (valuation, funding, market size, revenue, competitors), and
- *      proposes a targeted follow-up query per gap — the "notice what's
- *      missing and search specifically for it" step a fixed one-shot
- *      query batch can't do on its own
- *   6. Final evidence-grounded synthesis (Groq), citing or abstaining
+ * Runs the full research pipeline for a company name at a given depth
+ * ('standard' or 'deep'):
+ *   1. Serve from cache if we have a recent-enough entry for this depth
+ *      (unless forceRefresh)
+ *   2. Base multi-query live web search (Tavily) — 5 clusters (standard) or
+ *      10 (deep, adding business model, tech/IP, team, customers, product)
+ *   3. A cheap Groq call names real (evidence-backed) competitors
+ *   4. Follow-up searches: 1-2 queries per named competitor, plus a
+ *      dedicated founder-background query and a dedicated risk/red-flag
+ *      query — budget-permitting against the monthly Tavily quota
+ *   5. Adaptive gap-filling: 1 round (standard) or up to 3 rounds (deep) —
+ *      a cheap Groq call reviews everything gathered, flags fields still
+ *      lacking support, and proposes targeted follow-up queries; each round
+ *      re-assesses using evidence from prior rounds, stopping early once a
+ *      round reports no more gaps
+ *   6. Map-reduce compression: large evidence groups get condensed into
+ *      dense, URL-cited facts before the final call, so the fixed
+ *      evidence-block budget can hold facts from far more sources than raw
+ *      snippets ever could
+ *   7. Final evidence-grounded synthesis (Groq) over the compressed digest,
+ *      citing or abstaining
  *
  * Returns { memo, researchTrace, cached, fetchedAt, stale? }.
  * Throws an error with `.code` set to 'no_evidence' | 'search_failed' |
  * 'synthesis_failed' | 'quota_exhausted' so the route layer can respond
  * with the right status and the client can show an accurate message.
  */
-export async function runResearch(companyName, { forceRefresh = false } = {}) {
+export async function runResearch(companyName, { forceRefresh = false, depth = 'standard' } = {}) {
+  const preset = DEPTH_PRESETS[depth] ?? DEPTH_PRESETS.standard;
+
   if (!forceRefresh) {
-    const cached = getCached(companyName);
+    const cached = getCached(companyName, depth);
     if (cached) return { ...cached, cached: true };
   }
 
@@ -63,15 +112,15 @@ export async function runResearch(companyName, { forceRefresh = false } = {}) {
   }
 
   const { remaining } = getTavilyUsage();
-  if (remaining < BASE_QUERY_COST) {
+  if (remaining < preset.baseQueryCost) {
     const err = new Error(
-      `Tavily monthly search quota exhausted (${remaining} credits left, need at least ${BASE_QUERY_COST})`
+      `Tavily monthly search quota exhausted (${remaining} credits left, need at least ${preset.baseQueryCost})`
     );
     err.code = 'quota_exhausted';
     throw err;
   }
 
-  const baseEvidence = await tavilySearchMany(buildBaseQueryPlan(companyName));
+  const baseEvidence = await tavilySearchMany(buildBaseQueryPlan(companyName, depth));
 
   const allQueriesFailed = baseEvidence.every((g) => g.error);
   if (allQueriesFailed) {
@@ -100,43 +149,54 @@ export async function runResearch(companyName, { forceRefresh = false } = {}) {
     );
   }
 
-  const competitorNames = await planFollowUps(companyName, baseEvidence);
+  const competitorNames = await planFollowUps(companyName, baseEvidence, preset.maxCompetitorFollowups);
   const { remaining: afterCore } = getTavilyUsage();
+  const costPerCompetitor = preset.queriesPerCompetitor;
   const affordableCompetitors = Math.min(
     competitorNames.length,
-    MAX_COMPETITOR_FOLLOWUPS,
-    Math.max(0, afterCore - followUpQueries.length)
+    preset.maxCompetitorFollowups,
+    Math.max(0, Math.floor((afterCore - followUpQueries.length) / costPerCompetitor))
   );
   for (const name of competitorNames.slice(0, affordableCompetitors)) {
-    followUpQueries.push({
-      query: `${name} funding valuation revenue`,
-      label: `COMPETITOR: ${name}`,
-    });
+    followUpQueries.push(...competitorQueries(name, preset.queriesPerCompetitor));
   }
 
   const followUpEvidence = followUpQueries.length > 0 ? await tavilySearchMany(followUpQueries) : [];
-  const evidenceSoFar = [...baseEvidence, ...followUpEvidence];
+  let evidenceSoFar = [...baseEvidence, ...followUpEvidence];
 
-  // Adaptive gap-filling round: look at what we actually have, not what we
+  // Adaptive gap-filling: look at what we actually have, not what we
   // assumed we'd get from the fixed query plan, and go dig specifically
-  // for whatever's still missing — budget permitting.
-  const { remaining: afterFollowUps } = getTavilyUsage();
-  let gapEvidence = [];
-  if (afterFollowUps >= 1) {
-    const gaps = await identifyGaps(companyName, evidenceSoFar);
-    const affordableGaps = gaps.slice(0, afterFollowUps);
-    if (affordableGaps.length > 0) {
-      const gapQueries = affordableGaps.map((g) => ({ query: g.query, label: `GAP FILL: ${g.field}` }));
-      gapEvidence = await tavilySearchMany(gapQueries);
-    }
+  // for whatever's still missing — budget permitting, up to maxGapRounds.
+  const gapEvidence = [];
+  for (let round = 0; round < preset.maxGapRounds; round++) {
+    const { remaining: beforeRound } = getTavilyUsage();
+    if (beforeRound < 1) break;
+
+    const gaps = await identifyGaps(companyName, [...evidenceSoFar, ...gapEvidence]);
+    if (gaps.length === 0) break; // evidence already covers everything reasonably well
+
+    const affordableGaps = gaps.slice(0, Math.min(gaps.length, preset.maxGapQueriesPerRound, beforeRound));
+    if (affordableGaps.length === 0) break;
+
+    const roundQueries = affordableGaps.map((g) => ({
+      query: g.query,
+      label: `GAP FILL R${round + 1}: ${g.field}`,
+    }));
+    const roundEvidence = await tavilySearchMany(roundQueries);
+    gapEvidence.push(...roundEvidence);
   }
 
   const allEvidence = [...evidenceSoFar, ...gapEvidence];
   const researchTrace = toTrace(allEvidence);
 
+  // Map-reduce: compress large groups into dense facts before the final
+  // call so the fixed evidence budget holds far more distinct sources than
+  // raw snippets alone would allow.
+  const digest = await summarizeEvidenceGroups(companyName, allEvidence);
+
   let memo;
   try {
-    memo = await synthesizeMemo(companyName, allEvidence);
+    memo = await synthesizeMemo(companyName, digest);
   } catch (cause) {
     const err = new Error(`Synthesis failed: ${cause.message}`);
     err.code = 'synthesis_failed';
@@ -145,7 +205,7 @@ export async function runResearch(companyName, { forceRefresh = false } = {}) {
   }
 
   const finalMemo = { ...memo, isGenerated: false, source: 'groq+tavily' };
-  const entry = setCached(companyName, { memo: finalMemo, researchTrace });
+  const entry = setCached(companyName, depth, { memo: finalMemo, researchTrace });
 
   return { ...entry, cached: false };
 }

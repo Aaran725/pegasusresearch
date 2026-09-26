@@ -47,9 +47,8 @@ frontend and the API from one process).
   model instead. `GET /api/health` reports whichever model is currently
   in use.
 - **Tavily** (https://tavily.com) — free tier, 1,000 search credits/month.
-  A full research run costs up to 13 credits (5 base queries + up to 4
-  competitor/founder/risk follow-ups + up to 4 adaptive gap-fill queries —
-  see below), so the free tier covers roughly 75+ company searches/month.
+  A **Standard** run costs up to 13 credits (~75 searches/month); a **Deep**
+  run costs up to 36 (~27 searches/month) — see the depth toggle below.
   Usage is tracked server-side and shown live in the sidebar; the app
   refuses to start a run it can't afford rather than partially burning
   quota, and later rounds get skipped first if budget runs low mid-run.
@@ -62,36 +61,67 @@ means whatever it happens to miss just stays missing; each round below
 exists because it's a mistake a fixed batch makes that a human researcher
 (or a follow-up round) wouldn't:
 
-1. **Base search** (Tavily, 5 queries) — funding/valuation, competitors,
-   revenue/TAM, recent news, and a Crunchbase/PitchBook-targeted query.
+1. **Base search** (Tavily) — funding/valuation, competitors, revenue/TAM,
+   recent news, and a Crunchbase/PitchBook-targeted query (5 topics in
+   Standard mode; Deep mode adds business model/pricing, tech/IP,
+   team/hiring, customers/partnerships, and product roadmap — 10 total).
 2. **Follow-up depth pass** (budget-permitting):
-   - A cheap Groq call reads the base evidence and names up to 3 *real*
-     competitors actually mentioned in it (never invented) — a dedicated
-     Tavily query then researches each one individually, so the comps
-     table is sourced from evidence about that specific competitor, not
-     stray mentions in the subject company's own search results.
+   - A cheap Groq call reads the base evidence and names real competitors
+     actually mentioned in it (never invented — up to 3 in Standard, up
+     to 6 in Deep) — a dedicated Tavily query then researches each one
+     individually (Deep mode runs a second query per competitor covering
+     product/positioning, not just funding), so the comps table is
+     sourced from evidence about that specific competitor, not stray
+     mentions in the subject company's own search results.
    - A dedicated founder/CEO background query.
    - A dedicated risk query (`lawsuit OR layoffs OR controversy OR
      investigation OR regulatory`) — deliberately hunting for negative
      signals, since a naive pipeline only ever surfaces positives.
-3. **Adaptive gap-filling round** (budget-permitting): a cheap Groq call
-   reviews everything gathered in rounds 1-2 and checks each of
-   valuation / funding / market size / revenue / competitors for whether
-   there's actually clear supporting evidence yet. For anything still
-   thin, it writes one targeted follow-up query — not a repeat of the
-   generic round-1 query, but a different angle (a specific source type,
-   a specific event, alternate phrasing) — and those run too. This is the
-   step that catches what the fixed batch missed, instead of just
-   accepting the gap.
-4. **Evidence-grounded synthesis** (Groq, one final call over everything
-   gathered across all rounds) — cites every numeric claim to a specific
-   source snippet, or returns `null`/omits the entry rather than
-   guessing, and self-rates confidence per field (`verified` / `inferred`
-   / `unavailable`).
-5. The frontend renders sources, confidence badges, an expandable research
+3. **Adaptive gap-filling** (budget-permitting, 1 round in Standard, up to
+   3 in Deep): a cheap Groq call reviews everything gathered so far and
+   checks each of valuation / funding / market size / revenue /
+   competitors for whether there's actually clear supporting evidence yet.
+   For anything still thin, it writes one targeted follow-up query — not
+   a repeat of the generic round-1 query, but a different angle (a
+   specific source type, a specific event, alternate phrasing). Deep mode
+   re-assesses after each round using everything gathered so far
+   (including prior gap-fill rounds), stopping early the moment a round
+   reports nothing left to fill.
+4. **Map-reduce evidence compression** (`server/services/evidenceSummarizer.js`):
+   Groq's free tier has a real, hard per-model token ceiling (as low as
+   ~8,000 tokens/minute on some models — hit in production), independent
+   of how many Tavily queries were fired. Firing more queries alone
+   doesn't get more information into the final memo once that ceiling is
+   full. Before the final synthesis call, any evidence group with more
+   than ~1,500 characters of raw text gets a small, cheap Groq call that
+   extracts a handful of concrete, URL-cited facts — far more
+   information-dense than a raw 700-char snippet (often padding or a
+   sentence cut off mid-thought). Small groups pass through unsummarized
+   (no Groq call spent). This is what actually lets Deep mode's extra
+   search translate into a richer memo instead of the fixed evidence
+   budget just truncating it away — roughly 60 digest facts fit the same
+   budget that ~14-17 raw snippets used to. Applies to both depths.
+5. **Evidence-grounded synthesis** (Groq, one final call over the
+   compressed digest) — cites every numeric claim to a specific source
+   snippet, or returns `null`/omits the entry rather than guessing, and
+   self-rates confidence per field (`verified` / `inferred` /
+   `unavailable`).
+6. The frontend renders sources, confidence badges, an expandable research
    trace, a risk-signals panel (including an explicit "searched and found
    nothing" state — that's a real, meaningful result, not an omission),
    a founding-team panel, and a recent-news timeline.
+
+### Standard vs. Deep
+
+A toggle next to the search bar picks the depth. Standard mode is today's
+research volume (still benefiting from map-reduce compression — a real
+quality improvement, not just a Deep-mode perk). Deep mode trades ~2.5x
+more Tavily credits for ~2x topic breadth, ~2x competitor depth, and up to
+3 gap-filling rounds instead of 1. Standard and Deep results for the same
+company are **cached separately** (`server/services/researchCache.js`) —
+switching modes always gets that mode's own result, never silently serves
+the other mode's shallower/deeper data. The status pill and the
+"Researched X ago" line both show which depth a displayed memo came from.
 
 **Caching:** results are cached per company (`server/data-cache/`, file-based)
 for 24h. A second search of the same company is instant and spends no
@@ -154,9 +184,10 @@ server/
   routes/portfolio.js               GET/POST /api/portfolio, DELETE /api/portfolio/:name
   routes/trends.js                  GET /api/trends — aggregates from the research cache
   services/tavilyClient.js          Live web search + quota recording
-  services/groqClient.js            Evidence-grounded LLM synthesis + competitor-naming call
-  services/researchOrchestrator.js  Wires search -> follow-ups -> synthesis, error classification
-  services/researchCache.js         24h file-based cache per company
+  services/groqClient.js            Evidence-grounded LLM synthesis, model fallback chain, shared runJSONPrompt
+  services/evidenceSummarizer.js    Map-reduce evidence compression (large groups -> dense cited facts)
+  services/researchOrchestrator.js  Depth presets, wires search -> follow-ups -> gap-fill -> synthesis
+  services/researchCache.js         24h file-based cache per company, keyed by depth
   services/quotaTracker.js          Monthly Tavily credit usage, persisted to disk
   services/editsStore.js            Analyst edits/overrides, merged onto memos at read time
   services/portfolioStore.js        Watchlist (single JSON file)

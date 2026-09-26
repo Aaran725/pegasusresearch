@@ -11,7 +11,7 @@ function relativeTime(ts) {
   return `${days}d ago`;
 }
 
-export default function ResearchMeta({ fetchedAt, cached, stale, onRefresh }) {
+export default function ResearchMeta({ fetchedAt, cached, stale, depth, onRefresh }) {
   if (!fetchedAt) return null;
 
   return (
@@ -20,6 +20,7 @@ export default function ResearchMeta({ fetchedAt, cached, stale, onRefresh }) {
         <Clock size={11} />
         Researched {relativeTime(fetchedAt)}
         {cached && ' · cached'}
+        {depth && ` · ${depth} depth`}
       </span>
       {stale && (
         <span className="text-warning bg-warning/10 border border-warning/25 rounded-md px-1.5 py-0.5">

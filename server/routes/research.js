@@ -12,17 +12,20 @@ const CODE_TO_STATUS = {
   quota_exhausted: 429,
 };
 
+const VALID_DEPTHS = new Set(['standard', 'deep']);
+
 router.post('/research', async (req, res) => {
   const company = typeof req.body?.company === 'string' ? req.body.company.trim() : '';
   const forceRefresh = Boolean(req.body?.forceRefresh);
+  const depth = VALID_DEPTHS.has(req.body?.depth) ? req.body.depth : 'standard';
   if (!company) {
     return res.status(400).json({ error: 'invalid_request', message: 'company is required' });
   }
 
   try {
-    const { memo, researchTrace, cached, fetchedAt, stale } = await runResearch(company, { forceRefresh });
+    const { memo, researchTrace, cached, fetchedAt, stale } = await runResearch(company, { forceRefresh, depth });
     const { memo: finalMemo, editedFields } = applyEdits(company, memo);
-    return res.json({ memo: finalMemo, editedFields, researchTrace, cached, fetchedAt, stale: Boolean(stale) });
+    return res.json({ memo: finalMemo, editedFields, researchTrace, cached, fetchedAt, stale: Boolean(stale), depth });
   } catch (err) {
     const status = CODE_TO_STATUS[err.code] ?? 500;
     console.error(`[research] ${company}:`, err.message);

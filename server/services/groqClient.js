@@ -126,7 +126,10 @@ export function getResolvedModelName() {
 const TOTAL_EVIDENCE_CHAR_BUDGET = 12000;
 const SNIPPET_CHAR_CAP = 700;
 
-function buildEvidenceBlock(evidenceBundle) {
+/** Exported so evidenceSummarizer.js (map-reduce compression) can build the
+ * same evidence-block format for a single group without duplicating this
+ * budgeting logic. */
+export function buildEvidenceBlock(evidenceBundle) {
   const groups = evidenceBundle.filter((g) => g.answer || g.results.length > 0);
   const perGroupBudget = Math.max(400, Math.floor(TOTAL_EVIDENCE_CHAR_BUDGET / (groups.length || 1)));
 
@@ -282,21 +285,39 @@ async function withKeyRotation(fn) {
   throw lastError ?? new Error('All Groq API keys failed');
 }
 
-const PLAN_SYSTEM_PROMPT = `You read web-search evidence about a company and extract which REAL competitor/rival/alternative companies are mentioned anywhere in it — never invent names. Read carefully: company names often appear inside ordinary sentences (a "top alternatives to X" listicle, a funding article that name-drops rivals for context, an industry roundup), not just in an obviously labeled "competitors" section — scan every result's full text for other named companies in the same space, not just the first line. Respond with ONLY JSON: { "competitors": string[] } with up to 3 company names genuinely present in the evidence text (never the subject company itself). Only return an empty array if you have checked every result and truly no other named company appears anywhere.`;
+/**
+ * The shared "cheap JSON call" shape used by every small Groq call in this
+ * module (competitor naming, gap detection, and — via evidenceSummarizer.js
+ * — per-group evidence summarization): key rotation + model fallback chain,
+ * parsed JSON out. Exported so evidenceSummarizer.js doesn't have to
+ * reimplement this — it's the same reliability machinery that took several
+ * rounds of real production failures to get right.
+ */
+export async function runJSONPrompt(systemPrompt, userContent, maxTokens) {
+  return withKeyRotation((key) => callGroqJSON(key, systemPrompt, userContent, maxTokens));
+}
+
+function buildPlanSystemPrompt(maxCompetitors) {
+  return `You read web-search evidence about a company and extract which REAL competitor/rival/alternative companies are mentioned anywhere in it — never invent names. Read carefully: company names often appear inside ordinary sentences (a "top alternatives to X" listicle, a funding article that name-drops rivals for context, an industry roundup), not just in an obviously labeled "competitors" section — scan every result's full text for other named companies in the same space, not just the first line. Respond with ONLY JSON: { "competitors": string[] } with up to ${maxCompetitors} company names genuinely present in the evidence text (never the subject company itself). Only return an empty array if you have checked every result and truly no other named company appears anywhere.`;
+}
 
 /**
- * Reads the base evidence and names up to 3 real competitors worth a
- * dedicated follow-up search. Returns [] on any failure — this is a soft
- * enhancement, not required for the main memo to succeed.
+ * Reads the base evidence and names up to `maxCompetitors` real competitors
+ * worth a dedicated follow-up search. Returns [] on any failure — this is a
+ * soft enhancement, not required for the main memo to succeed.
  */
-export async function planFollowUps(companyName, baseEvidenceBundle) {
+export async function planFollowUps(companyName, baseEvidenceBundle, maxCompetitors = 3) {
   try {
     const evidenceText = buildEvidenceBlock(baseEvidenceBundle);
-    const result = await withKeyRotation((key) =>
-      callGroqJSON(key, PLAN_SYSTEM_PROMPT, `Subject company: ${companyName}\n\nEvidence:\n${evidenceText}`, 300)
+    const result = await runJSONPrompt(
+      buildPlanSystemPrompt(maxCompetitors),
+      `Subject company: ${companyName}\n\nEvidence:\n${evidenceText}`,
+      300
     );
     const names = Array.isArray(result?.competitors) ? result.competitors : [];
-    return names.filter((n) => typeof n === 'string' && n.trim() && n.trim().toLowerCase() !== companyName.trim().toLowerCase()).slice(0, 3);
+    return names
+      .filter((n) => typeof n === 'string' && n.trim() && n.trim().toLowerCase() !== companyName.trim().toLowerCase())
+      .slice(0, maxCompetitors);
   } catch (err) {
     console.error('planFollowUps failed (continuing without competitor deep-dive):', err.message);
     return [];
@@ -315,8 +336,10 @@ const GAP_SYSTEM_PROMPT = `You are a research assistant reviewing evidence gathe
 export async function identifyGaps(companyName, evidenceSoFar) {
   try {
     const evidenceText = buildEvidenceBlock(evidenceSoFar);
-    const result = await withKeyRotation((key) =>
-      callGroqJSON(key, GAP_SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence gathered so far:\n${evidenceText}`, 500)
+    const result = await runJSONPrompt(
+      GAP_SYSTEM_PROMPT,
+      `Company: ${companyName}\n\nEvidence gathered so far:\n${evidenceText}`,
+      500
     );
     const gaps = Array.isArray(result?.gaps) ? result.gaps : [];
     return gaps
@@ -381,7 +404,5 @@ Respond with ONLY a single JSON object, no markdown fences, matching exactly thi
  */
 export async function synthesizeMemo(companyName, evidenceBundle) {
   const evidenceText = buildEvidenceBlock(evidenceBundle);
-  return withKeyRotation((key) =>
-    callGroqJSON(key, SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 2000)
-  );
+  return runJSONPrompt(SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 2000);
 }
