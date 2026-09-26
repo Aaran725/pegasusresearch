@@ -47,15 +47,20 @@ frontend and the API from one process).
   model instead. `GET /api/health` reports whichever model is currently
   in use.
 - **Tavily** (https://tavily.com) — free tier, 1,000 search credits/month.
-  A full research run costs up to 9 credits (5 base queries + up to 4
-  follow-ups — see below), so the free tier covers roughly 100+ company
-  searches/month depending on how many competitors get deep-dived. Usage
-  is tracked server-side and shown live in the sidebar; the app refuses to
-  start a run it can't afford rather than partially burning quota.
+  A full research run costs up to 13 credits (5 base queries + up to 4
+  competitor/founder/risk follow-ups + up to 4 adaptive gap-fill queries —
+  see below), so the free tier covers roughly 75+ company searches/month.
+  Usage is tracked server-side and shown live in the sidebar; the app
+  refuses to start a run it can't afford rather than partially burning
+  quota, and later rounds get skipped first if budget runs low mid-run.
 
 ## How research works
 
-`server/services/researchOrchestrator.js` runs a two-pass pipeline per search:
+`server/services/researchOrchestrator.js` runs an ADAPTIVE, multi-round
+pipeline per search — not one fixed query batch. A single fixed batch
+means whatever it happens to miss just stays missing; each round below
+exists because it's a mistake a fixed batch makes that a human researcher
+(or a follow-up round) wouldn't:
 
 1. **Base search** (Tavily, 5 queries) — funding/valuation, competitors,
    revenue/TAM, recent news, and a Crunchbase/PitchBook-targeted query.
@@ -69,11 +74,21 @@ frontend and the API from one process).
    - A dedicated risk query (`lawsuit OR layoffs OR controversy OR
      investigation OR regulatory`) — deliberately hunting for negative
      signals, since a naive pipeline only ever surfaces positives.
-3. **Evidence-grounded synthesis** (Groq, one final call over everything
-   gathered) — cites every numeric claim to a specific source snippet, or
-   returns `null`/omits the entry rather than guessing, and self-rates
-   confidence per field (`verified` / `inferred` / `unavailable`).
-4. The frontend renders sources, confidence badges, an expandable research
+3. **Adaptive gap-filling round** (budget-permitting): a cheap Groq call
+   reviews everything gathered in rounds 1-2 and checks each of
+   valuation / funding / market size / revenue / competitors for whether
+   there's actually clear supporting evidence yet. For anything still
+   thin, it writes one targeted follow-up query — not a repeat of the
+   generic round-1 query, but a different angle (a specific source type,
+   a specific event, alternate phrasing) — and those run too. This is the
+   step that catches what the fixed batch missed, instead of just
+   accepting the gap.
+4. **Evidence-grounded synthesis** (Groq, one final call over everything
+   gathered across all rounds) — cites every numeric claim to a specific
+   source snippet, or returns `null`/omits the entry rather than
+   guessing, and self-rates confidence per field (`verified` / `inferred`
+   / `unavailable`).
+5. The frontend renders sources, confidence badges, an expandable research
    trace, a risk-signals panel (including an explicit "searched and found
    nothing" state — that's a real, meaningful result, not an omission),
    a founding-team panel, and a recent-news timeline.

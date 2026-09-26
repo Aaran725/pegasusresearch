@@ -1,5 +1,5 @@
 import { tavilySearchMany, hasTavilyKeyConfigured, getTavilyUsage } from './tavilyClient.js';
-import { synthesizeMemo, planFollowUps } from './groqClient.js';
+import { synthesizeMemo, planFollowUps, identifyGaps } from './groqClient.js';
 import { getCached, setCached } from './researchCache.js';
 
 const BASE_QUERY_COST = 5; // one query per entry below
@@ -37,7 +37,13 @@ function toTrace(evidenceBundle) {
  *   4. Follow-up searches: one per named competitor, plus a dedicated
  *      founder-background query and a dedicated risk/red-flag query —
  *      budget-permitting against the monthly Tavily quota
- *   5. Final evidence-grounded synthesis (Groq), citing or abstaining
+ *   5. ADAPTIVE gap-filling round: a cheap Groq call reviews everything
+ *      gathered so far, flags fields still lacking clear support
+ *      (valuation, funding, market size, revenue, competitors), and
+ *      proposes a targeted follow-up query per gap — the "notice what's
+ *      missing and search specifically for it" step a fixed one-shot
+ *      query batch can't do on its own
+ *   6. Final evidence-grounded synthesis (Groq), citing or abstaining
  *
  * Returns { memo, researchTrace, cached, fetchedAt, stale? }.
  * Throws an error with `.code` set to 'no_evidence' | 'search_failed' |
@@ -109,7 +115,23 @@ export async function runResearch(companyName, { forceRefresh = false } = {}) {
   }
 
   const followUpEvidence = followUpQueries.length > 0 ? await tavilySearchMany(followUpQueries) : [];
-  const allEvidence = [...baseEvidence, ...followUpEvidence];
+  const evidenceSoFar = [...baseEvidence, ...followUpEvidence];
+
+  // Adaptive gap-filling round: look at what we actually have, not what we
+  // assumed we'd get from the fixed query plan, and go dig specifically
+  // for whatever's still missing — budget permitting.
+  const { remaining: afterFollowUps } = getTavilyUsage();
+  let gapEvidence = [];
+  if (afterFollowUps >= 1) {
+    const gaps = await identifyGaps(companyName, evidenceSoFar);
+    const affordableGaps = gaps.slice(0, afterFollowUps);
+    if (affordableGaps.length > 0) {
+      const gapQueries = affordableGaps.map((g) => ({ query: g.query, label: `GAP FILL: ${g.field}` }));
+      gapEvidence = await tavilySearchMany(gapQueries);
+    }
+  }
+
+  const allEvidence = [...evidenceSoFar, ...gapEvidence];
   const researchTrace = toTrace(allEvidence);
 
   let memo;

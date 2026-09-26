@@ -303,6 +303,31 @@ export async function planFollowUps(companyName, baseEvidenceBundle) {
   }
 }
 
+const GAP_SYSTEM_PROMPT = `You are a research assistant reviewing evidence gathered so far about a company, checking for gaps before a final report gets written. For EACH of these fields — valuation, funding_amount, funding_rounds, market_size, revenue, competitors — check whether the evidence already contains clear supporting information. For any field that does NOT, write one specific, creative follow-up search query likely to find it: think like a researcher who hit a dead end and is trying a different angle (a specific source type like Crunchbase/TechCrunch/company blog, a specific recent time period, alternate phrasing, a specific event like "Series C announcement") — not a repeat of an obvious generic query. Respond with ONLY JSON: { "gaps": [ { "field": "valuation"|"funding_amount"|"funding_rounds"|"market_size"|"revenue"|"competitors", "query": string } ] }, at most 4 entries, ordered by how important the gap is. If the evidence already covers everything reasonably well, return an empty array — don't manufacture gaps to seem thorough.`;
+
+/**
+ * Reviews evidence gathered so far, identifies which fields still lack
+ * clear support, and proposes ONE targeted follow-up query per gap — the
+ * "notice what's missing and go dig for it specifically" step a fixed
+ * one-shot query batch can't do on its own. Returns [] on any failure;
+ * this is a quality enhancement, not required for the memo to succeed.
+ */
+export async function identifyGaps(companyName, evidenceSoFar) {
+  try {
+    const evidenceText = buildEvidenceBlock(evidenceSoFar);
+    const result = await withKeyRotation((key) =>
+      callGroqJSON(key, GAP_SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence gathered so far:\n${evidenceText}`, 500)
+    );
+    const gaps = Array.isArray(result?.gaps) ? result.gaps : [];
+    return gaps
+      .filter((g) => g && typeof g.query === 'string' && g.query.trim())
+      .slice(0, 4);
+  } catch (err) {
+    console.error('identifyGaps failed (continuing without gap-filling round):', err.message);
+    return [];
+  }
+}
+
 const SYSTEM_PROMPT = `You are a senior VC research analyst at Pegasus Tech Ventures. You will be given a company name and a bundle of live web-search evidence (titles, URLs, and extracted page content, some tagged with a [LABEL] showing what it's evidence for — e.g. [COMPETITOR: Acme Inc] or [RISK SIGNALS] or [FOUNDER BACKGROUND]). Your job is to synthesize an investment memo STRICTLY from that evidence — not from your own training memory.
 
 Hard rules:
