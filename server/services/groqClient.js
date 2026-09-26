@@ -110,16 +110,39 @@ export function getResolvedModelName() {
   return cachedRanked?.[workingIndex] ?? null;
 }
 
+// Hard cap on total evidence text, in characters (~4 chars/token, so this
+// is a ~2,000-token budget). Groq's free tier commonly caps some models at
+// as little as 8,000 tokens-per-minute TOTAL (prompt + completion) — an
+// uncapped evidence block (previously: every result from every query, each
+// up to 900 chars, with 5-10 query groups) could easily run 10-12k tokens
+// on its own, which no amount of model-hopping fixes. Budget is split
+// evenly PER GROUP (not per result) so base-search volume can't crowd out
+// the smaller, high-value follow-up groups (risk signals, founder
+// background, per-competitor evidence) that arrive later in the array.
+const TOTAL_EVIDENCE_CHAR_BUDGET = 8000;
+const SNIPPET_CHAR_CAP = 500;
+
 function buildEvidenceBlock(evidenceBundle) {
+  const groups = evidenceBundle.filter((g) => g.answer || g.results.length > 0);
+  const perGroupBudget = Math.max(400, Math.floor(TOTAL_EVIDENCE_CHAR_BUDGET / (groups.length || 1)));
+
   let block = '';
   let n = 1;
-  for (const group of evidenceBundle) {
+  for (const group of groups) {
     const tag = group.label ? `[${group.label}] ` : '';
+    let used = 0;
+
     if (group.answer) {
-      block += `${tag}[Q: ${group.query}] Quick answer: ${group.answer}\n\n`;
+      const line = `${tag}[Q: ${group.query}] Quick answer: ${group.answer}\n\n`;
+      block += line;
+      used += line.length;
     }
+
     for (const r of group.results) {
-      block += `${tag}[${n}] ${r.title}\nURL: ${r.url}\n${(r.content || '').slice(0, 900)}\n\n`;
+      const entry = `${tag}[${n}] ${r.title}\nURL: ${r.url}\n${(r.content || '').slice(0, SNIPPET_CHAR_CAP)}\n\n`;
+      if (used > 0 && used + entry.length > perGroupBudget) break; // this group's share is spent
+      block += entry;
+      used += entry.length;
       n++;
     }
   }
@@ -171,7 +194,7 @@ const MODEL_LEVEL_MESSAGE_PATTERN =
  * or a transient network blip, which shouldn't burn through the whole
  * candidate list. */
 function isModelLevelFailure(status, bodyText) {
-  if (status === 404 || status === 429) return true;
+  if (status === 404 || status === 429 || status === 413) return true;
   if (status !== 400) return false;
 
   let code = null;
@@ -330,6 +353,6 @@ Respond with ONLY a single JSON object, no markdown fences, matching exactly thi
 export async function synthesizeMemo(companyName, evidenceBundle) {
   const evidenceText = buildEvidenceBlock(evidenceBundle);
   return withKeyRotation((key) =>
-    callGroqJSON(key, SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 4000)
+    callGroqJSON(key, SYSTEM_PROMPT, `Company: ${companyName}\n\nEvidence:\n${evidenceText}`, 2000)
   );
 }
