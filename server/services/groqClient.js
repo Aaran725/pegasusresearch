@@ -119,8 +119,12 @@ export function getResolvedModelName() {
 // evenly PER GROUP (not per result) so base-search volume can't crowd out
 // the smaller, high-value follow-up groups (risk signals, founder
 // background, per-competitor evidence) that arrive later in the array.
-const TOTAL_EVIDENCE_CHAR_BUDGET = 8000;
-const SNIPPET_CHAR_CAP = 500;
+// Real runs have measured comfortably under the 8k TPM limit even at these
+// higher numbers (previous, more conservative values were cutting real
+// content — e.g. a competitor mention 600 chars into an article — before
+// the model ever saw it), so there's real margin to spend here.
+const TOTAL_EVIDENCE_CHAR_BUDGET = 12000;
+const SNIPPET_CHAR_CAP = 700;
 
 function buildEvidenceBlock(evidenceBundle) {
   const groups = evidenceBundle.filter((g) => g.answer || g.results.length > 0);
@@ -278,7 +282,7 @@ async function withKeyRotation(fn) {
   throw lastError ?? new Error('All Groq API keys failed');
 }
 
-const PLAN_SYSTEM_PROMPT = `You read web-search evidence about a company and extract which REAL competitor companies are actually mentioned in it — never invent names. Respond with ONLY JSON: { "competitors": string[] } with at most 3 company names, each one that genuinely appears in the evidence text (not the subject company itself). If none are clearly mentioned, return an empty array.`;
+const PLAN_SYSTEM_PROMPT = `You read web-search evidence about a company and extract which REAL competitor/rival/alternative companies are mentioned anywhere in it — never invent names. Read carefully: company names often appear inside ordinary sentences (a "top alternatives to X" listicle, a funding article that name-drops rivals for context, an industry roundup), not just in an obviously labeled "competitors" section — scan every result's full text for other named companies in the same space, not just the first line. Respond with ONLY JSON: { "competitors": string[] } with up to 3 company names genuinely present in the evidence text (never the subject company itself). Only return an empty array if you have checked every result and truly no other named company appears anywhere.`;
 
 /**
  * Reads the base evidence and names up to 3 real competitors worth a
@@ -306,7 +310,7 @@ Hard rules:
 - If evidence snippets disagree on a figure, prefer the most recent/authoritative source and note the discrepancy in "aiVerdict".
 - List every source URL you actually drew from in "sources", each with a one-line "usedFor" note.
 - For "confidence", rate each of valuation / totalRaised / tam / competitors / marketSizing as one of "verified" (evidence directly states it), "inferred" (reasonably derived/estimated from partial evidence — this is normal and expected for TAM/SAM/SOM breakdowns, which are almost never directly published), or "unavailable" (no supporting evidence at all).
-- For "competitors" and "comps" arrays: only include companies you found real evidence for — prefer the ones with [COMPETITOR: ...]-tagged evidence, since those were specifically researched. It is fine to return fewer than 4 entries — never pad with invented competitor names.
+- For "competitors" and "comps" arrays: actively mine EVERY evidence block for named competitor companies — not just [COMPETITOR: ...]-tagged evidence. Company names routinely appear inside general [BASE SEARCH] results (a "competitors alternatives market" search result, a funding article that name-drops rivals for context, a news piece comparing the subject to others) — read for those mentions, don't wait for a dedicated tag. [COMPETITOR: ...]-tagged evidence just means that company was researched more deeply, so prefer using ITS evidence for that entry's specific numbers, but a company name mentioned only in [BASE SEARCH] evidence still belongs in these arrays with whatever partial data is available (scores/values you can't support stay null, per the rules above). Only return empty arrays if you have re-read all evidence and truly no other company is named anywhere. Never pad with invented competitor names.
 - "fundingHistory": only include rounds you found evidence for, chronological.
 - "newsTimeline": pull dated events (funding, product launches, executive hires/departures, layoffs, lawsuits, regulatory action) from evidence tagged [Q: ...news...] or similar. Most recent first. Only include events with a real evidence-backed date/headline. Empty array if nothing found.
 - "riskFlags": from evidence tagged [RISK SIGNALS], list concrete negative signals (lawsuits, layoffs, regulatory issues, executive departures under a cloud, controversies). Rate each "severity" as "high"/"medium"/"low". If the risk-signal search evidence shows nothing negative, return an empty array — do NOT invent a risk to seem thorough, but you MAY note in aiVerdict that a risk search was run and came back clean.
